@@ -35,8 +35,8 @@ Turn on Edit buildings, or press `E`, to change a map by hand.
 - Click a building to select it, and drag it to move it. Dragging open ground still pans.
 - Buildings in the way get pushed aside, and can push others in turn.
 - To lock a building, right-click it, or select it and press `L` or Lock building. Locked buildings show in red. They can't be moved or pushed, so they stop anything that runs into them. Locking again unlocks.
-- City walls give way. A building that reaches a wall moves that stretch of it, with its towers and gates, and roads stay joined to their gates. Buildings beyond the wall are moved out of its way.
-- The sea and rivers stop buildings, and a dragged building slides along them. Walls that run along water stay put, and a locked building holds a wall back.
+- City walls give way. A building that reaches a wall bends that stretch into a smooth curve, with its towers and gates. The further it goes the wider the wall swells, so a long drag makes a rounded bulge, and the land it takes in stays empty. Roads are carried along outside the wall and stay joined to their gates, and buildings beyond the wall are moved out of its way.
+- The sea and rivers stop buildings, and a dragged building slides along them. Walls that run along water stay put and a bulge won't enter water. A locked building holds a wall back, so the curve tapers off beside it, and a castle wall can't be pushed through the city wall.
 - Undo move, or `Cmd`+`Z`, takes back one drag at a time, including any walls it moved. Unlock all clears every lock.
 
 Exports show the moved buildings. Moves aren't saved anywhere else, so export a map to keep it. The app asks first before a change would replace a map you've edited.
