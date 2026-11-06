@@ -9,6 +9,8 @@ from PySide6.QtGui import (
     QColor,
     QKeySequence,
     QPainter,
+    QPen,
+    QPolygonF,
     QShortcut,
     QTransform,
 )
@@ -32,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import export, qt_render
+from .editing import CityEditor
 from .geometry import GenerationError, Point
 from .layers import PALETTES, map_extent
 from .model import (
@@ -54,14 +57,23 @@ SIZE_PRESETS = (
     ("Metropolis", 40, 40),
 )
 
+LOCKED_COLOUR = "#c0392b"
+SELECTED_COLOUR = "#2f7de1"
+
 MIN_ZOOM = 0.3
 MAX_ZOOM = 40.0
 
 
 class MapView(QWidget):
-    """The map. Drag to pan, scroll to zoom, double-click to reset."""
+    """The map. Drag to pan, scroll to zoom, double-click to reset.
+
+    In edit mode, a click selects a building and dragging moves it. Dragging
+    open ground still pans.
+    """
 
     hovered = Signal(str)
+    selection_changed = Signal()
+    edited = Signal()
 
     def __init__(self):
         super().__init__()
@@ -76,14 +88,40 @@ class MapView(QWidget):
         self.drag_start = None
         self.hover_text = ""
         self.hover_position = QPointF(0, 0)
+        self.editor = None
+        self.edit_mode = False
+        self.selected = None
+        self.moving = None
+        self.move_start = None
 
-    def set_city(self, model, palette, reset_view=True):
+    def set_city(self, model, palette, editor=None, reset_view=True):
         self.model = model
         self.palette_colours = palette
-        self.prepared = qt_render.prepare(model, palette)
+        if editor is not self.editor:
+            self.editor = editor
+            self.select(None)
+        self.refresh()
         if reset_view:
             self.reset_view()
+
+    def refresh(self):
+        """Redraw the city after something on it has changed."""
+        self.prepared = qt_render.prepare(self.model, self.palette_colours)
         self.update()
+
+    def set_edit_mode(self, on):
+        self.edit_mode = on
+        if not on:
+            self.select(None)
+        self.setCursor(Qt.CursorShape.ArrowCursor if on
+                       else Qt.CursorShape.OpenHandCursor)
+        self.update()
+
+    def select(self, building):
+        if building is not self.selected:
+            self.selected = building
+            self.selection_changed.emit()
+            self.update()
 
     def reset_view(self):
         self.zoom = 1.0
@@ -110,10 +148,32 @@ class MapView(QWidget):
         painter.fillRect(self.rect(), QColor(colours.paper))
         painter.setTransform(self._transform())
         qt_render.paint(painter, self.prepared)
+        if self.edit_mode and self.editor is not None:
+            self._paint_edit_marks(painter)
         painter.resetTransform()
 
         if self.hover_text:
             self._paint_label(painter, colours)
+
+    def _paint_edit_marks(self, painter):
+        def outline(building):
+            return QPolygonF([QPointF(x, y) for x, y in building.corners()])
+
+        locked = QColor(LOCKED_COLOUR)
+        pen = QPen(locked, 2)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        locked.setAlpha(110)
+        painter.setBrush(locked)
+        for building in self.editor.locked:
+            painter.drawPolygon(outline(building))
+
+        if self.selected is not None:
+            pen = QPen(QColor(SELECTED_COLOUR), 3)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPolygon(outline(self.selected))
 
     def _paint_label(self, painter, colours):
         metrics = painter.fontMetrics()
@@ -140,22 +200,65 @@ class MapView(QWidget):
         self.zoom = new_zoom
         self.update()
 
+    def _spot(self, position):
+        """The place on the map under a position in the window."""
+        inverse, _ = self._transform().inverted()
+        spot = inverse.map(QPointF(position))
+        return Point(spot.x(), spot.y())
+
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.drag_start = event.position()
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self.edit_mode and self.editor is not None:
+            spot = self._spot(event.position())
+            building = self.editor.building_at(spot)
+            self.select(building)
+            if building is not None:
+                if self.editor.begin_move(building):
+                    self.moving = building
+                    self.move_start = spot
+                return
+        self.drag_start = event.position()
+        self.setCursor(Qt.CursorShape.ClosedHandCursor)
 
     def mouseReleaseEvent(self, event):
+        if self.moving is not None:
+            self.editor.end_move()
+            self.moving = None
+            self.edited.emit()
         self.drag_start = None
-        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setCursor(Qt.CursorShape.ArrowCursor if self.edit_mode
+                       else Qt.CursorShape.OpenHandCursor)
 
     def mouseDoubleClickEvent(self, event):
-        self.reset_view()
+        if self.edit_mode:
+            # A quick second click is still a click on a building.
+            self.mousePressEvent(event)
+        else:
+            self.reset_view()
+
+    def contextMenuEvent(self, event):
+        """A right click locks or unlocks a building."""
+        if not self.edit_mode or self.editor is None:
+            return
+        building = self.editor.building_at(self._spot(event.pos()))
+        if building is not None:
+            self.select(building)
+            self.editor.toggle_lock(building)
+            self.selection_changed.emit()
+            self.edited.emit()
+            self.update()
 
     def mouseMoveEvent(self, event):
         if self.model is None:
             return
         position = event.position()
+        if self.moving is not None:
+            spot = self._spot(position)
+            self.editor.drag_to(self.moving, spot.x - self.move_start.x,
+                                spot.y - self.move_start.y)
+            self.refresh()
+            return
         if self.drag_start is not None:
             self.pan += position - self.drag_start
             self.drag_start = position
@@ -201,6 +304,10 @@ class MainWindow(QMainWindow):
 
         self.view = MapView()
         self.view.hovered.connect(self._show_hovered)
+        self.view.selection_changed.connect(self._update_edit_controls)
+        self.view.edited.connect(self._update_edit_controls)
+        self.editor = None
+        self.built_state = None
 
         central = QWidget()
         layout = QHBoxLayout(central)
@@ -237,6 +344,28 @@ class MainWindow(QMainWindow):
         buttons = QVBoxLayout()
         buttons.setContentsMargins(10, 0, 18, 0)
         layout.addLayout(buttons)
+
+        self.edit_button = QPushButton("Edit buildings")
+        self.edit_button.setCheckable(True)
+        self.edit_button.setToolTip(
+            "Click a building to select it, drag to move it, "
+            "right-click to lock it (E)")
+        self.edit_button.toggled.connect(self._edit_toggled)
+        buttons.addWidget(self.edit_button)
+
+        self.lock_button = QPushButton("Lock building")
+        self.lock_button.clicked.connect(self.toggle_lock)
+        buttons.addWidget(self.lock_button)
+
+        row = QHBoxLayout()
+        self.undo_button = QPushButton("Undo move")
+        self.undo_button.clicked.connect(self.undo_move)
+        row.addWidget(self.undo_button)
+        self.unlock_all_button = QPushButton("Unlock all")
+        self.unlock_all_button.clicked.connect(self.unlock_all)
+        row.addWidget(self.unlock_all_button)
+        buttons.addLayout(row)
+
         for text, handler in (("Export PNG...", self.export_png),
                               ("Export SVG...", self.export_svg),
                               ("Export JSON...", self.export_json)):
@@ -292,16 +421,18 @@ class MainWindow(QMainWindow):
         self.roads_box.addItem("All gates", True)
         self.roads_box.addItem("Two roads", False)
         self.roads_box.setToolTip("How many roads lead out of town")
-        for label, box in (("Walls", self.walls_box),
-                           ("Castle", self.citadel_box),
-                           ("Plaza", self.plaza_box),
-                           ("Temple", self.temple_box),
-                           ("Greens", self.greens_box),
-                           ("Coast", self.coast_box),
-                           ("River", self.river_box),
-                           ("Fields", self.fields_box),
-                           ("Forests", self.forests_box),
-                           ("Roads", self.roads_box)):
+        features = (("Walls", self.walls_box),
+                    ("Castle", self.citadel_box),
+                    ("Plaza", self.plaza_box),
+                    ("Temple", self.temple_box),
+                    ("Greens", self.greens_box),
+                    ("Coast", self.coast_box),
+                    ("River", self.river_box),
+                    ("Fields", self.fields_box),
+                    ("Forests", self.forests_box),
+                    ("Roads", self.roads_box))
+        self.feature_boxes = [box for _, box in features]
+        for label, box in features:
             box.currentIndexChanged.connect(self.build)
             city_layout.addRow(label, box)
 
@@ -338,6 +469,17 @@ class MainWindow(QMainWindow):
             action.triggered.connect(handler)
             file_menu.addAction(action)
 
+        edit_menu = self.menuBar().addMenu("Edit")
+        for text, shortcut, handler in (
+                ("Edit buildings", "E", self.edit_button.toggle),
+                ("Lock or unlock building", "L", self.toggle_lock),
+                ("Undo move", "Ctrl+Z", self.undo_move),
+                ("Unlock all", "Ctrl+Shift+L", self.unlock_all)):
+            action = QAction(text, self)
+            action.setShortcut(QKeySequence(shortcut))
+            action.triggered.connect(handler)
+            edit_menu.addAction(action)
+
         view_menu = self.menuBar().addMenu("View")
         action = QAction("Reset view", self)
         action.setShortcut(QKeySequence("Ctrl+0"))
@@ -371,8 +513,40 @@ class MainWindow(QMainWindow):
         self.seed_box.setValue(seed)
         self.seed_box.blockSignals(False)
 
+    def _control_state(self):
+        return ([self.size_box.value(), self.seed_box.value(),
+                 self.sea_box.value()],
+                [box.currentIndex() for box in self.feature_boxes])
+
+    def _restore_controls(self):
+        """Put the controls back to match the city on screen."""
+        values, indexes = self.built_state
+        boxes = [self.size_box, self.seed_box, self.sea_box]
+        for box in boxes + self.feature_boxes:
+            box.blockSignals(True)
+        for box, value in zip(boxes, values):
+            box.setValue(value)
+        for box, index in zip(self.feature_boxes, indexes):
+            box.setCurrentIndex(index)
+        for box in boxes + self.feature_boxes:
+            box.blockSignals(False)
+
+    def _may_discard_edits(self):
+        if self.editor is None or not self.editor.has_changes:
+            return True
+        answer = QMessageBox.question(
+            self, APP_NAME,
+            "Building a new map will lose the buildings you've moved and "
+            "locked. Export this map first if you want to keep it.\n\n"
+            "Build a new map anyway?")
+        return answer == QMessageBox.StandardButton.Yes
+
     def build(self):
         """Build the city the controls describe."""
+        if not self._may_discard_edits():
+            self._restore_controls()
+            return
+
         try:
             model = Model(
                 size=self.size_box.value(),
@@ -394,13 +568,60 @@ class MainWindow(QMainWindow):
             return
 
         self.model = model
-        self.view.set_city(model, self.palette())
+        self.editor = CityEditor(model)
+        self.built_state = self._control_state()
+        self.view.set_city(model, self.palette(), self.editor)
+        self._update_edit_controls()
         self.city_label.setText(
             f"{size_name(model.size)}, {model.size} wards, seed {model.seed}")
 
     def _palette_changed(self):
         if self.model is not None:
-            self.view.set_city(self.model, self.palette(), reset_view=False)
+            self.view.set_city(self.model, self.palette(), self.editor,
+                               reset_view=False)
+
+    def _edit_toggled(self, on):
+        self.view.set_edit_mode(on)
+        self._update_edit_controls()
+
+    def _update_edit_controls(self):
+        editor = self.editor
+        selected = self.view.selected
+        locked = (editor is not None and selected is not None
+                  and editor.is_locked(selected))
+
+        self.lock_button.setEnabled(selected is not None)
+        self.lock_button.setText(
+            "Unlock building" if locked else "Lock building")
+        self.undo_button.setEnabled(editor is not None and bool(editor.history))
+        self.unlock_all_button.setEnabled(
+            editor is not None and bool(editor.locked))
+
+        if selected is not None:
+            name = selected.ward.label or "Building"
+            state = "locked" if locked else "drag to move, L to lock"
+            self.statusBar().showMessage(f"{name}: {state}")
+        elif self.view.edit_mode:
+            self.statusBar().showMessage(
+                "Click a building to select it, drag to move it")
+
+    def toggle_lock(self):
+        selected = self.view.selected
+        if selected is not None:
+            self.editor.toggle_lock(selected)
+            self._update_edit_controls()
+            self.view.update()
+
+    def undo_move(self):
+        if self.editor is not None and self.editor.undo():
+            self.view.refresh()
+            self._update_edit_controls()
+
+    def unlock_all(self):
+        if self.editor is not None:
+            self.editor.unlock_all()
+            self._update_edit_controls()
+            self.view.update()
 
     def _show_hovered(self, text):
         self.statusBar().showMessage(text)
