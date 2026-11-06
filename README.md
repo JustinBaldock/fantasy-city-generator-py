@@ -69,6 +69,6 @@ To run the tests:
 
 ## Licence
 
-The code is licensed under the GNU General Public License v3.0, the same licence as the original. See [LICENSE.txt](LICENSE.txt).
+The code is licensed under the GNU General Public License v3.0, the same licence as the original. See [LICENSE](LICENSE).
 
 Watabou's page says the maps from the website can be used however you like, including in commercial RPG adventures, and that attribution is appreciated but not required. The GPL covers this program's code, and doesn't normally extend to what the program produces.
