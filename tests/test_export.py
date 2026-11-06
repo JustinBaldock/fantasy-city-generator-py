@@ -36,7 +36,7 @@ def test_json_round_trips(tmp_path):
     export.save_json(model, path)
     data = json.loads(path.read_text())
     assert data["seed"] == 7
-    assert data["version"] == 2
+    assert data["version"] == 3
     assert data["wall"]["gates"]
     assert len(data["wards"]) == len(model.patches)
 

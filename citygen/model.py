@@ -10,7 +10,7 @@ gives the same city.
 import math
 import random
 
-from . import rng, water
+from . import countryside, rng, water
 from .geometry import (
     GenerationError,
     Point,
@@ -58,6 +58,8 @@ WARDS = [
 
 COAST_CHANCE = 0.4
 RIVER_CHANCE = 0.3
+FIELDS_CHANCE = 0.75
+FORESTS_CHANCE = 0.4
 
 # A failed attempt shows up as one of these. Anything else is a bug.
 _ATTEMPT_FAILED = (
@@ -81,8 +83,9 @@ def size_name(size):
 class Model:
     """A generated city.
 
-    walls, citadel, plaza, temple, greens, coast and river can each be True
-    or False to force that feature. None leaves it to the seed.
+    walls, citadel, plaza, temple, greens, coast, river, fields and forests
+    can each be True or False to force that feature. None leaves it to the
+    seed.
 
     hub False keeps only two roads out of town. sea is the compass bearing of
     the coast in degrees, or None to leave it to the seed.
@@ -93,7 +96,7 @@ class Model:
 
     def __init__(self, size=DEFAULT_SIZE, seed=-1, walls=None, citadel=None,
                  plaza=None, temple=None, greens=None, coast=None, river=None,
-                 hub=True, sea=None):
+                 hub=True, sea=None, fields=None, forests=None):
         if seed > 0:
             rng.reset(seed)
         else:
@@ -110,9 +113,13 @@ class Model:
         coast_roll = self.features.random() < COAST_CHANCE
         river_roll = self.features.random() < RIVER_CHANCE
         bearing_roll = self.features.uniform(0, 360)
+        fields_roll = self.features.random() < FIELDS_CHANCE
+        forests_roll = self.features.random() < FORESTS_CHANCE
         self.coast_needed = coast_roll if coast is None else coast
         self.river_needed = river_roll if river is None else river
         self.sea_bearing = bearing_roll if sea is None else sea
+        self.fields_needed = fields_roll if fields is None else fields
+        self.forests_needed = forests_roll if forests is None else forests
         self.sea_direction = water.direction_from_bearing(self.sea_bearing)
 
         # Drawn even when forced, so that forcing one leaves the rest alike.
@@ -151,6 +158,9 @@ class Model:
         self.bridge_points = set()
         self.bridges = []
         self.piers = []
+        self.fields = []
+        self.furrows = []
+        self.trees = []
 
         self._build_patches()
         self._optimize_junctions()
@@ -435,6 +445,7 @@ class Model:
             patch.ward.create_geometry()
         if self.shore:
             water.build_piers(self)
+        countryside.build_countryside(self)
 
     def get_neighbour(self, patch, v):
         following = patch.shape.next(v)

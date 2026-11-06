@@ -1,5 +1,7 @@
 """Drawing the map's layers with Qt, for the screen and for PNG files."""
 
+from dataclasses import replace
+
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import (
     QBrush,
@@ -12,8 +14,21 @@ from PySide6.QtGui import (
 
 from .layers import build_layers, map_extent
 
+# Qt fills many small paths far faster than one huge one, and a forest can
+# have thousands of trees, so its circles are grouped by square of map.
+CIRCLE_TILE = 40
+
 _CAPS = {"flat": Qt.PenCapStyle.FlatCap, "round": Qt.PenCapStyle.RoundCap}
 _JOINS = {"miter": Qt.PenJoinStyle.MiterJoin, "round": Qt.PenJoinStyle.RoundJoin}
+
+
+def _tiles(layer):
+    """Split a layer's circles into one layer for each square of map."""
+    groups = {}
+    for circle in layer.circles:
+        x, y, _ = circle
+        groups.setdefault((x // CIRCLE_TILE, y // CIRCLE_TILE), []).append(circle)
+    return [replace(layer, circles=group) for group in groups.values()]
 
 
 def _path(layer):
@@ -50,11 +65,13 @@ def _brush(layer):
 
 def prepare(model, palette):
     """Turn a city into paths, which Qt can then redraw quickly."""
-    return [
-        (_path(layer), _pen(layer), _brush(layer))
-        for layer in build_layers(model, palette)
-        if layer.polygons or layer.polylines or layer.circles
-    ]
+    prepared = []
+    for layer in build_layers(model, palette):
+        parts = _tiles(layer) if layer.circles else [layer]
+        for part in parts:
+            if part.polygons or part.polylines or part.circles:
+                prepared.append((_path(part), _pen(part), _brush(part)))
+    return prepared
 
 
 def paint(painter, prepared):

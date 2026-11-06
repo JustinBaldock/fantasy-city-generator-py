@@ -6,7 +6,7 @@ from xml.sax.saxutils import escape
 from .layers import build_layers, map_extent
 from .model import size_name
 
-JSON_FORMAT_VERSION = 2
+JSON_FORMAT_VERSION = 3
 
 
 def _xy(polygon):
@@ -49,6 +49,9 @@ def city_to_dict(model):
         "river": _xy(model.river),
         "bridges": [_xy(pair) for pair in model.bridges],
         "piers": [_xy(pair) for pair in model.piers],
+        "fields": [_xy(plot) for plot in model.fields],
+        "trees": [[round(x, 2), round(y, 2), round(r, 2)]
+                  for x, y, r in model.trees],
         "wall": _wall(model.wall) if model.wall is not None else None,
         "castle_wall": (_wall(model.citadel.ward.wall)
                         if model.citadel is not None else None),

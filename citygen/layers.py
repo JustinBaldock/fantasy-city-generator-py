@@ -27,6 +27,7 @@ from .wards import (
 NORMAL_STROKE = 0.3
 THICK_STROKE = 1.8
 PIER_WIDTH = 1.0
+FURROW_WIDTH = 0.14
 LINE_ROUNDING = 2
 
 _BUILDING_WARDS = (
@@ -59,6 +60,14 @@ class Palette:
     @property
     def green(self):
         return _mix(self.paper, self.light, 0.55)
+
+    @property
+    def furrow(self):
+        return _mix(self.paper, self.medium, 0.4)
+
+    @property
+    def forest(self):
+        return _mix(self.medium, self.dark, 0.25)
 
 
 PALETTES = {
@@ -149,6 +158,9 @@ def build_layers(model, palette):
     """Everything on the map, in drawing order."""
     roads = [_rounded(road) for road in model.roads]
     layers = [
+        Layer("Furrows", stroke=palette.furrow, width=FURROW_WIDTH, cap="flat",
+              polylines=_pairs(model.furrows)),
+        Layer("Forest", fill=palette.forest, circles=model.trees),
         Layer("Road edges", stroke=palette.medium,
               width=MAIN_STREET + NORMAL_STROKE, cap="flat", polylines=roads),
         Layer("Roads", stroke=palette.paper,
