@@ -28,6 +28,18 @@ python3 -m venv .venv
 - Scroll to zoom, drag to pan, and double-click to reset the view.
 - Hover over a ward to see what kind it is.
 
+## Moving and locking buildings
+
+Turn on Edit buildings, or press `E`, to change a map by hand.
+
+- Click a building to select it, and drag it to move it. Dragging open ground still pans.
+- Buildings in the way get pushed aside, and can push others in turn.
+- To lock a building, right-click it, or select it and press `L` or Lock building. Locked buildings show in red. They can't be moved or pushed, so they stop anything that runs into them. Locking again unlocks.
+- Buildings can't go into the sea or a river. They can be moved through walls and onto streets.
+- Undo move, or `Cmd`+`Z`, takes back one drag at a time. Unlock all clears every lock.
+
+Exports show the moved buildings. Moves aren't saved anywhere else, so export a map to keep it. The app asks first before a change would replace a map you've edited.
+
 ## Exporting
 
 - **PNG** at any size from 500 to 16,000 pixels square.
@@ -64,9 +76,10 @@ The Walls, Castle and Plaza options and the exports are also additions in this p
 | `citygen/layers.py` | What a map draws, as plain data, and the colour styles |
 | `citygen/export.py` | JSON and SVG |
 | `citygen/qt_render.py` | Drawing with Qt, and PNG |
+| `citygen/editing.py` | Moving and locking buildings |
 | `citygen/app.py` | The desktop app |
 
-Everything except `water.py` and `countryside.py` follows the original's structure, with small additions for the new features. Where the original's behaviour looks like a mistake but shapes the maps, the port keeps it and says so in a comment. `Polygon.distance` is the main example.
+Everything except `water.py`, `countryside.py` and `editing.py` follows the original's structure, with small additions for the new features. Where the original's behaviour looks like a mistake but shapes the maps, the port keeps it and says so in a comment. `Polygon.distance` is the main example.
 
 To run the tests:
 
