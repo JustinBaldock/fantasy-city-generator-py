@@ -278,3 +278,211 @@ def test_an_editor_starts_with_no_changes():
     assert editor.has_changes
     editor.unlock_all()
     assert not editor.has_changes
+
+
+def walled_city(**options):
+    options = {"walls": True, "coast": False, "river": False, **options}
+    return Model(15, 7, **options)
+
+
+def inside_buildings(model, editor):
+    return [b for b in editor.buildings if b.ward.patch.within_walls]
+
+
+def outer_building(model, editor):
+    return max(inside_buildings(model, editor),
+               key=lambda b: math.hypot(*b.center()))
+
+
+def wall_corners(wall):
+    return [(v.x, v.y) for v in wall.shape]
+
+
+def drag_outwards(editor, building, length):
+    x, y = building.center()
+    size = math.hypot(x, y)
+    return drag(editor, building, x / size * length, y / size * length)
+
+
+def test_a_building_dragged_outwards_moves_the_wall():
+    model = walled_city()
+    editor = CityEditor(model)
+    building = outer_building(model, editor)
+    start = wall_corners(model.wall)
+
+    assert drag_outwards(editor, building, 25)
+    assert wall_corners(model.wall) != start
+
+
+def test_a_moved_wall_still_encloses_the_building_that_moved_it():
+    model = walled_city()
+    editor = CityEditor(model)
+    building = outer_building(model, editor)
+    drag_outwards(editor, building, 25)
+    for x, y in building.corners():
+        assert model.wall.shape.contains_point(Point(x, y))
+
+
+def test_everything_inside_stays_inside_a_moved_wall():
+    model = walled_city()
+    editor = CityEditor(model)
+    inside = inside_buildings(model, editor)
+    for building in sorted(inside, key=lambda b: -math.hypot(*b.center()))[:4]:
+        drag_outwards(editor, building, 20)
+    for building in inside:
+        assert model.wall.shape.contains_point(Point(*building.center()))
+
+
+def test_buildings_beyond_a_moved_wall_are_moved_clear():
+    model = walled_city()
+    editor = CityEditor(model)
+    outside = [b for b in editor.buildings
+               if not model.wall.shape.contains_point(Point(*b.center()))]
+    for building in sorted(inside_buildings(model, editor),
+                           key=lambda b: -math.hypot(*b.center()))[:4]:
+        drag_outwards(editor, building, 20)
+    for building in outside:
+        assert not model.wall.shape.contains_point(Point(*building.center()))
+        assert editor._tightest_wall_part(building)[1] < 0.2
+
+
+def test_towers_and_gates_move_with_their_wall():
+    model = walled_city()
+    editor = CityEditor(model)
+    building = outer_building(model, editor)
+    drag_outwards(editor, building, 25)
+    for tower in model.wall.towers:
+        assert tower in model.wall.shape
+    for gate in model.wall.gates:
+        assert gate in model.wall.shape
+
+
+def test_roads_stay_joined_to_their_gates():
+    model = walled_city()
+    editor = CityEditor(model)
+    for building in sorted(inside_buildings(model, editor),
+                           key=lambda b: -math.hypot(*b.center()))[:6]:
+        drag_outwards(editor, building, 20)
+    assert model.roads
+    for road in model.roads:
+        assert any(v in road for v in model.wall.gates)
+
+
+def test_undo_puts_the_wall_back():
+    model = walled_city()
+    editor = CityEditor(model)
+    building = outer_building(model, editor)
+    start = wall_corners(model.wall)
+    before = positions(editor)
+    drag_outwards(editor, building, 25)
+
+    editor.undo()
+    assert wall_corners(model.wall) == start
+    assert not moved(editor, before)
+
+
+def test_a_locked_building_holds_the_wall_back():
+    model = walled_city()
+    editor = CityEditor(model)
+    building = outer_building(model, editor)
+    x, y = building.center()
+    size = math.hypot(x, y)
+    outside = [b for b in editor.buildings
+               if not model.wall.shape.contains_point(Point(*b.center()))]
+    guard = min(outside, key=lambda b: math.dist(
+        b.center(), (x + x / size * 12, y + y / size * 12)))
+    editor.set_locked(guard, True)
+    held = guard.corners()
+
+    drag_outwards(editor, building, 80)
+    assert guard.corners() == held
+    assert model.wall.shape.contains_point(Point(*guard.center())) is False
+
+
+def test_a_wall_along_the_water_stays_put():
+    for seed in range(1, 12):
+        model = Model(15, seed, walls=True, coast=False, river=True)
+        fixed = [v for v in model.wall.shape if v in model.water_points]
+        if not fixed:
+            continue
+        editor = CityEditor(model)
+        spots = [(v.x, v.y) for v in fixed]
+        for building in sorted(inside_buildings(model, editor),
+                               key=lambda b: -math.hypot(*b.center()))[:6]:
+            drag_outwards(editor, building, 20)
+        assert [(v.x, v.y) for v in fixed] == spots
+        return
+    pytest.fail("no walled city with a river crossing")
+
+
+def test_a_dragged_building_can_cross_a_packed_walled_city():
+    model = walled_city()
+    editor = CityEditor(model)
+    building = outer_building(model, editor)
+    x, y = building.center()
+
+    assert editor.begin_move(building)
+    for step in range(1, 41):
+        reached = editor.drag_to(building, -x * 0.7 * step / 40,
+                                 -y * 0.7 * step / 40)
+    editor.end_move()
+
+    assert reached
+    assert building.center() == pytest.approx((x * 0.3, y * 0.3), abs=0.05)
+
+
+def test_a_jump_past_the_limit_catches_up_on_the_next_move():
+    model = walled_city()
+    editor = CityEditor(model)
+    building = outer_building(model, editor)
+    x, y = building.center()
+
+    assert editor.begin_move(building)
+    assert not editor.drag_to(building, -x * 0.7, -y * 0.7)
+    for _ in range(30):
+        if editor.drag_to(building, -x * 0.7, -y * 0.7):
+            break
+    editor.end_move()
+    assert building.center() == pytest.approx((x * 0.3, y * 0.3), abs=0.05)
+
+
+def test_undo_also_brings_back_buildings_that_were_shoved():
+    model = walled_city()
+    editor = CityEditor(model)
+    before = positions(editor)
+    building = outer_building(model, editor)
+    x, y = building.center()
+    drag(editor, building, -x * 0.3, -y * 0.3)
+    assert len(moved(editor, before)) > 1
+
+    editor.undo()
+    assert not moved(editor, before)
+
+
+def test_a_ring_of_locked_buildings_never_moves():
+    model = walled_city()
+    editor = CityEditor(model)
+    building = outer_building(model, editor)
+    for other in editor._nearby(building):
+        editor.set_locked(other, True)
+    held = {b: b.corners() for b in editor.locked}
+
+    x, y = building.center()
+    drag(editor, building, -x * 0.7, -y * 0.7)
+    for other, corners in held.items():
+        assert other.corners() == corners
+
+
+def test_every_walled_city_can_still_be_edited():
+    for seed in range(1, 8):
+        model = Model(15, seed, walls=True, citadel=True, coast=False,
+                      river=False)
+        editor = CityEditor(model)
+        inner = [b for b in editor.buildings if b.ward.patch.within_city]
+        sample = inner[::7]
+        movable = 0
+        for building in sample:
+            assert editor.begin_move(building)
+            movable += editor.drag_to(building, 0.5, 0.5)
+            editor.end_move()
+        assert movable > len(sample) * 0.9
