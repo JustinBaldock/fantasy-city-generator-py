@@ -2,7 +2,7 @@
 
 A desktop app that generates maps of medieval fantasy towns and cities, written in Python with PySide6.
 
-Pick a size and press Return, and you get a new walled town or sprawling city, with streets, wards, a castle, temples, parks and farms. Every map comes from a seed, so the same seed and settings always give the same map. It runs on your own computer with no web browser and no account.
+Pick a size and press Return, and you get a new walled town or sprawling city, with streets, wards, a castle, temples, greens, farms, and a coast or river if you want one. Every map comes from a seed, so the same seed and settings always give the same map. It runs on your own computer with no web browser and no account.
 
 This is an unofficial Python port of [TownGeneratorOS](https://github.com/watabou/TownGeneratorOS), the Haxe source code that [Watabou](https://github.com/watabou) released for the [Medieval Fantasy City Generator](https://watabou.itch.io/medieval-fantasy-city-generator). All credit for the generator's design and algorithms goes to Watabou. Please don't send them bug reports for this port.
 
@@ -21,7 +21,9 @@ python3 -m venv .venv
 - Press Return, or New map, for a new map at the same size.
 - Press a size button for a new map of that kind of settlement, or set the number of wards directly, from 6 to 40.
 - To get a map back, type its seed and press Return.
-- Walls, Castle and Plaza can each be Random, Yes or No. Changing one rebuilds the same seed.
+- Walls, Castle, Plaza, Temple, Greens, Coast and River can each be Random, Yes or No. Changing one rebuilds the same seed.
+- Sea to sets the compass bearing of the coast, with 0 for north and 90 for east.
+- Roads sets whether every gate has a road, or only two roads lead out of town.
 - Style changes the colours without changing the map.
 - Scroll to zoom, drag to pan, and double-click to reset the view.
 - Hover over a ward to see what kind it is.
@@ -34,11 +36,15 @@ python3 -m venv .venv
 
 ## How it differs from the website
 
-This port is based on the source code Watabou published, which stopped being updated years ago. The website has moved on since then, so this app doesn't have its later features, such as rivers, coasts and forests.
+This port is based on the source code Watabou published, which stopped being updated years ago. The website has moved on since then.
+
+Coasts, rivers, bridges, piers, rounded greens, temple landmarks, the Roads option and curved road drawing aren't in the published source. They are this project's own work, modelled on what the website's maps show, and no code was taken from the website. They won't match it exactly. Water follows the edges between wards, for example, so a river can't cut through the middle of one.
+
+The website's forests, farm fields, shadows, district names, grid, compass and scale bar aren't in this app.
 
 The same seed won't give the same map here as on the website. The site's generator has changed since this code was published, and the port also differs from the original in small ways, such as the order roads are searched in.
 
-The Walls, Castle and Plaza options and the exports are additions in this port. The published source chose those features only from the seed, and could only show the map on screen.
+The Walls, Castle and Plaza options and the exports are also additions in this port. The published source chose those features only from the seed, and could only show the map on screen.
 
 ## How it's organised
 
@@ -48,6 +54,7 @@ The Walls, Castle and Plaza options and the exports are additions in this port. 
 | `citygen/geometry.py` | Points and polygons |
 | `citygen/voronoi.py` | The regions that become wards |
 | `citygen/cutter.py` | Dividing polygons |
+| `citygen/water.py` | Coasts, rivers, bridges and piers |
 | `citygen/patch.py` | A patch of land, and the outline around a group |
 | `citygen/walls.py` | City and castle walls |
 | `citygen/topology.py` | The street network and path finding |
@@ -58,7 +65,7 @@ The Walls, Castle and Plaza options and the exports are additions in this port. 
 | `citygen/qt_render.py` | Drawing with Qt, and PNG |
 | `citygen/app.py` | The desktop app |
 
-Where the original's behaviour looks like a mistake but shapes the maps, the port keeps it and says so in a comment. `Polygon.distance` is the main example.
+Everything except `water.py` follows the original's structure, with small additions for the new features. Where the original's behaviour looks like a mistake but shapes the maps, the port keeps it and says so in a comment. `Polygon.distance` is the main example.
 
 To run the tests:
 
