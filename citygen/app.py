@@ -228,8 +228,22 @@ class MainWindow(QMainWindow):
         scroller.setFrameShape(QFrame.Shape.NoFrame)
         scroller.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroller.setFixedWidth(256)
-        return scroller
+
+        panel = QWidget()
+        panel.setFixedWidth(256)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 8)
+        layout.addWidget(scroller, 1)
+        buttons = QVBoxLayout()
+        buttons.setContentsMargins(10, 0, 18, 0)
+        layout.addLayout(buttons)
+        for text, handler in (("Export PNG...", self.export_png),
+                              ("Export SVG...", self.export_svg),
+                              ("Export JSON...", self.export_json)):
+            button = QPushButton(text)
+            button.clicked.connect(handler)
+            buttons.addWidget(button)
+        return panel
 
     def _build_controls(self):
         panel = QWidget()
@@ -272,6 +286,8 @@ class MainWindow(QMainWindow):
         self.greens_box = TriState()
         self.coast_box = TriState()
         self.river_box = TriState()
+        self.fields_box = TriState()
+        self.forests_box = TriState()
         self.roads_box = QComboBox()
         self.roads_box.addItem("All gates", True)
         self.roads_box.addItem("Two roads", False)
@@ -283,6 +299,8 @@ class MainWindow(QMainWindow):
                            ("Greens", self.greens_box),
                            ("Coast", self.coast_box),
                            ("River", self.river_box),
+                           ("Fields", self.fields_box),
+                           ("Forests", self.forests_box),
                            ("Roads", self.roads_box)):
             box.currentIndexChanged.connect(self.build)
             city_layout.addRow(label, box)
@@ -307,13 +325,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(style_box)
 
         layout.addStretch(1)
-
-        for text, handler in (("Export PNG...", self.export_png),
-                              ("Export SVG...", self.export_svg),
-                              ("Export JSON...", self.export_json)):
-            button = QPushButton(text)
-            button.clicked.connect(handler)
-            layout.addWidget(button)
         return panel
 
     def _build_menu(self):
@@ -375,6 +386,8 @@ class MainWindow(QMainWindow):
                 river=self.river_box.currentData(),
                 hub=self.roads_box.currentData(),
                 sea=None if self.sea_box.value() < 0 else self.sea_box.value(),
+                fields=self.fields_box.currentData(),
+                forests=self.forests_box.currentData(),
             )
         except GenerationError as error:
             QMessageBox.warning(self, APP_NAME, str(error))
