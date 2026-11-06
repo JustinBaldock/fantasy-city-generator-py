@@ -131,3 +131,9 @@ def test_chaikin_keeps_the_ends_of_an_open_line():
 
 def test_rounding_a_polygon_trims_its_corners():
     assert 0 < square().rounded().square < 100
+
+
+def test_find_path_copes_with_a_missing_end():
+    a = Node()
+    assert find_path(None, a) is None
+    assert find_path(a, None) is None

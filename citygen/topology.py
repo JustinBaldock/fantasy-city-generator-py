@@ -22,6 +22,9 @@ def find_path(start, goal, exclude=None):
     The original calls this A*, but it has no heuristic and takes nodes first
     come, first served.
     """
+    if start is None or goal is None:
+        return None
+
     closed = set(exclude or ())
     waiting = deque([start])
     queued = {start}

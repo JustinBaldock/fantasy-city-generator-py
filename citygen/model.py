@@ -258,6 +258,14 @@ class Model:
             if p.shape.distance(self.center) < radius * 3
         ]
 
+        # If the outline found a small loop inside the city instead of its
+        # outer edge, the radius is far too small and real wards are lost.
+        # The original would carry on and fail later.
+        kept = set(self.patches)
+        if any(p not in kept for p in self.inner) or (
+                self.citadel is not None and self.citadel not in kept):
+            raise GenerationError("Lost part of the city")
+
         self.gates = self.border.gates
 
         if self.citadel is not None:
