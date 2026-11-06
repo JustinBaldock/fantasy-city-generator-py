@@ -17,7 +17,7 @@ from .water import RIVER_WIDTH
 
 VIEW_MARGIN = 1.3  # How far past the city land is worth filling.
 
-FIELD_REACH = 0.7  # How far out fields go, in city radii.
+FIELD_REACH = 0.55  # How far out fields go, in city radii.
 FIELD_SHARE = 0.45  # The share of the land low enough for fields.
 MIN_FIELD_BLOCK = 300
 PLOT_SIZE = 220
@@ -26,12 +26,12 @@ FURROW_SPACING = 0.9
 TREE_SPACING = 5.0
 TREE_JITTER = 1.2
 TREE_RADIUS = (4.0, 5.2)
-FOREST_SHARE = 0.55  # The share of the open ground that is forest.
+FOREST_SHARE = 0.8  # The share of the visible open ground that is forest.
 LONE_TREE_BAND = 0.14
 LONE_TREE_CHANCE = 0.05
 LONE_TREE_RADIUS = (1.4, 2.2)
 
-CLEARING = 16.0  # Open ground between the city and any forest.
+CLEARING = 9.0  # Open ground between the city and any forest.
 ROAD_CLEARANCE = 2.4
 
 CELL = 3.0  # The size of the squares used to mark ground as taken.
@@ -113,6 +113,17 @@ class _Ground:
             p = interpolate(a, b, i / steps)
             self.mark(p.x, p.y, reach)
 
+    def mark_inside(self, polygon):
+        left, top = self._cell(min(v.x for v in polygon),
+                               min(v.y for v in polygon))
+        right, bottom = self._cell(max(v.x for v in polygon),
+                                   max(v.y for v in polygon))
+        for i in range(left, right + 1):
+            for j in range(top, bottom + 1):
+                if polygon.contains_point(Point((i + 0.5) * CELL,
+                                                (j + 0.5) * CELL)):
+                    self.taken.add((i, j))
+
     def is_free(self, x, y):
         return self._cell(x, y) not in self.taken
 
@@ -173,6 +184,7 @@ def _ground_for_trees(model):
 
     for patch in model.patches:
         if patch.within_city:
+            ground.mark_inside(patch.shape)
             for a, b in patch.shape.edges():
                 ground.mark_line(a, b, CLEARING)
         elif isinstance(patch.ward, Farm):
@@ -187,17 +199,9 @@ def _ground_for_trees(model):
         ground.mark_line(a, b, RIVER_WIDTH / 2 + tree_room + 1)
 
     for plot in model.fields:
+        ground.mark_inside(plot)
         for a, b in plot.edges():
             ground.mark_line(a, b, tree_room)
-        left = min(v.x for v in plot)
-        right = max(v.x for v in plot)
-        top = min(v.y for v in plot)
-        bottom = max(v.y for v in plot)
-        for i in range(int(left // CELL), int(right // CELL) + 1):
-            for j in range(int(top // CELL), int(bottom // CELL) + 1):
-                if plot.contains_point(Point((i + 0.5) * CELL,
-                                             (j + 0.5) * CELL)):
-                    ground.taken.add((i, j))
     return ground
 
 
@@ -230,9 +234,11 @@ def _build_trees(model, height):
     if not sites:
         return
 
-    # Going by the open ground itself means a forced forest always appears,
+    # Going by the open ground in view means a forced forest always shows,
     # even when the terrain's high ground lies under the city.
-    levels = sorted(height(x, y) for x, y in sites)
+    edge = model.city_radius * 1.1
+    visible = [s for s in sites if abs(s[0]) < edge and abs(s[1]) < edge]
+    levels = sorted(height(x, y) for x, y in visible or sites)
     forest_line = levels[int((1 - FOREST_SHARE) * (len(levels) - 1))]
 
     for x, y in sites:
