@@ -14,6 +14,7 @@ from .geometry import (
     min_by,
 )
 from .walls import CurtainWall
+from .water import BANK, QUAY, RIVER_WIDTH
 
 MAIN_STREET = 2.0
 REGULAR_STREET = 1.0
@@ -48,7 +49,7 @@ def create_alleys(p, min_sq, grid_chaos, size_chaos, empty_prob=0.04,
     buildings = []
     for half in halves:
         if half.square < min_sq * 2 ** (4 * size_chaos * (rng.random() - 0.5)):
-            if not rng.chance(empty_prob):
+            if not rng.chance(empty_prob) and len(half) >= 3:
                 buildings.append(half)
         else:
             buildings += create_alleys(
@@ -105,6 +106,7 @@ class Ward:
         self.model = model
         self.patch = patch
         self.geometry = []
+        self.landmarks = []
 
     def create_geometry(self):
         self.geometry = []
@@ -116,6 +118,12 @@ class Ward:
 
         inner_patch = model.wall is None or patch.within_walls
         for v0, v1 in patch.shape.edges():
+            if (v0, v1) in model.river_edges:
+                inset.append(RIVER_WIDTH / 2 + BANK)
+                continue
+            if (v0, v1) in model.shore_edges:
+                inset.append(QUAY)
+                continue
             if model.wall is not None and model.wall.borders_by(patch, v0, v1):
                 # Not too close to the wall.
                 inset.append(MAIN_STREET / 2)
@@ -136,8 +144,31 @@ class Ward:
                 inset.append(ALLEY / 2)
 
         if patch.shape.is_convex():
-            return patch.shape.shrink(inset)
-        return patch.shape.buffer(inset)
+            block = patch.shape.shrink(inset)
+        else:
+            block = patch.shape.buffer(inset)
+        return self._trim_river_corners(block)
+
+    def _trim_river_corners(self, block):
+        """Pull the block back from any river vertex on its corners.
+
+        Where several wards meet on the river, one may touch it only at a
+        corner. No edge inset covers that, so the corner is cut off here.
+        """
+        reach = RIVER_WIDTH / 2 + BANK
+        for v in self.patch.shape:
+            if v not in self.model.river_points:
+                continue
+            inward = block.center.subtract(v)
+            if inward.length <= reach:
+                continue
+            edge = v.add(inward.norm(reach))
+            along = inward.rotate90()
+            pieces = block.cut(edge, edge.add(along))
+            if len(pieces) == 2:
+                block = max_by(
+                    pieces, lambda p: distance(p.center, v))
+        return block
 
     def filter_outskirts(self):
         """Thin out the buildings towards the edge of the city."""
@@ -343,12 +374,27 @@ class Cathedral(Ward):
     label = "Temple"
 
     def create_geometry(self):
+        """A temple in the half of the block nearest the centre.
+
+        The original gives the temple the whole ward. Here it shares the
+        block with ordinary buildings, which reads better as a landmark.
+        """
+        block = self.get_city_block()
+        focus = _plaza_or_center(self.model)
+        halves = cutter.bisect(block, _longest_edge_start(block),
+                               0.4 + rng.random() * 0.2, 0.0, ALLEY)
+        precinct = min_by(halves, lambda h: distance(h.center, focus))
+        core = precinct.shrink_eq(0.8)
+
         if rng.chance(0.4):
-            self.geometry = cutter.ring(
-                self.get_city_block(), 2 + rng.random() * 4)
+            self.landmarks = cutter.ring(core, 1.5 + rng.random() * 1.5) or [core]
         else:
-            self.geometry = create_ortho_building(
-                self.get_city_block(), 50, 0.8)
+            self.landmarks = create_ortho_building(core, 50, 0.8)
+
+        self.geometry = []
+        for half in halves:
+            if half is not precinct:
+                self.geometry += create_alleys(half, 30, 0.5, 0.6)
 
     @staticmethod
     def rate_location(model, patch):
@@ -365,7 +411,8 @@ class Castle(Ward):
         super().__init__(model, patch)
         reserved = [
             v for v in patch.shape
-            if any(not p.within_city for p in model.patch_by_vertex(v))
+            if v in model.shore_points or v in model.river_points
+            or any(not p.within_city for p in model.patch_by_vertex(v))
         ]
         self.wall = CurtainWall(True, model, [patch], reserved)
 
@@ -429,11 +476,8 @@ class Park(Ward):
     label = "Park"
 
     def create_geometry(self):
-        block = self.get_city_block()
-        if block.compactness >= 0.7:
-            self.geometry = cutter.radial(block, None, ALLEY)
-        else:
-            self.geometry = cutter.semi_radial(block, None, ALLEY)
+        """An open green with rounded corners."""
+        self.geometry = [self.get_city_block().rounded()]
 
 
 class Farm(Ward):

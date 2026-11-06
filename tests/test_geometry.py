@@ -3,7 +3,7 @@ import math
 import pytest
 
 from citygen import cutter, rng
-from citygen.geometry import Point, Polygon, fdiv
+from citygen.geometry import Point, Polygon, chaikin, fdiv
 from citygen.topology import Node, find_path
 from citygen.voronoi import Triangle, Voronoi
 
@@ -119,3 +119,15 @@ def test_find_path_avoids_excluded_nodes():
     a.link(b)
     b.link(c)
     assert find_path(a, c, {b}) is None
+
+
+def test_chaikin_keeps_the_ends_of_an_open_line():
+    line = [(0, 0), (10, 0), (10, 10)]
+    rounded = chaikin(line, 2)
+    assert rounded[0] == (0, 0)
+    assert rounded[-1] == (10, 10)
+    assert len(rounded) > len(line)
+
+
+def test_rounding_a_polygon_trims_its_corners():
+    assert 0 < square().rounded().square < 100

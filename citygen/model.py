@@ -8,8 +8,9 @@ gives the same city.
 """
 
 import math
+import random
 
-from . import rng
+from . import rng, water
 from .geometry import (
     GenerationError,
     Point,
@@ -55,6 +56,9 @@ WARDS = [
     CraftsmenWard, Park, PatriciateWard, Market, MerchantWard,
 ]
 
+COAST_CHANCE = 0.4
+RIVER_CHANCE = 0.3
+
 # A failed attempt shows up as one of these. Anything else is a bug.
 _ATTEMPT_FAILED = (
     GenerationError, ArithmeticError, IndexError, KeyError, ValueError,
@@ -77,12 +81,19 @@ def size_name(size):
 class Model:
     """A generated city.
 
-    walls, citadel and plaza can each be True or False to force that feature.
-    None leaves it to the seed.
+    walls, citadel, plaza, temple, greens, coast and river can each be True
+    or False to force that feature. None leaves it to the seed.
+
+    hub False keeps only two roads out of town. sea is the compass bearing of
+    the coast in degrees, or None to leave it to the seed.
+
+    coast, river, hub and the water's shape use their own random numbers, so
+    a city with no water is built exactly as the original would build it.
     """
 
     def __init__(self, size=DEFAULT_SIZE, seed=-1, walls=None, citadel=None,
-                 plaza=None):
+                 plaza=None, temple=None, greens=None, coast=None, river=None,
+                 hub=True, sea=None):
         if seed > 0:
             rng.reset(seed)
         else:
@@ -91,6 +102,18 @@ class Model:
 
         self.seed = seed
         self.size = size
+        self.temple_option = temple
+        self.greens_option = greens
+        self.hub = hub
+
+        self.features = random.Random(seed)
+        coast_roll = self.features.random() < COAST_CHANCE
+        river_roll = self.features.random() < RIVER_CHANCE
+        bearing_roll = self.features.uniform(0, 360)
+        self.coast_needed = coast_roll if coast is None else coast
+        self.river_needed = river_roll if river is None else river
+        self.sea_bearing = bearing_roll if sea is None else sea
+        self.sea_direction = water.direction_from_bearing(self.sea_bearing)
 
         # Drawn even when forced, so that forcing one leaves the rest alike.
         plaza_roll = rng.chance()
@@ -117,9 +140,21 @@ class Model:
         self.plaza = None
         self.citadel = None
         self.wall = None
+        self.seaward = None
+        self.shore = []
+        self.sea = None
+        self.shore_edges = set()
+        self.shore_points = set()
+        self.river = []
+        self.river_edges = set()
+        self.river_points = set()
+        self.bridge_points = set()
+        self.bridges = []
+        self.piers = []
 
         self._build_patches()
         self._optimize_junctions()
+        self._build_water()
         self._build_walls()
         self._build_streets()
         self._create_wards()
@@ -140,15 +175,14 @@ class Model:
             voronoi = Voronoi.relax(voronoi, to_relax)
 
         voronoi.points.sort(key=lambda p: p.length)
-        regions = voronoi.partitioning()
-
-        self.patches = []
+        self.patches = [Patch.from_region(r) for r in voronoi.partitioning()]
         self.inner = []
 
-        for count, region in enumerate(regions):
-            patch = Patch.from_region(region)
-            self.patches.append(patch)
+        if self.coast_needed:
+            water.plan_coast(self, self.patches)
 
+        land = [patch for patch in self.patches if not patch.water]
+        for count, patch in enumerate(land):
             if count == 0:
                 self.center = min_by(patch.shape, lambda p: p.length)
                 if self.plaza_needed:
@@ -197,13 +231,26 @@ class Model:
                     duplicate = index_of(w.shape, v, i + 1)
                 i += 1
 
+    def _build_water(self):
+        if self.coast_needed:
+            water.finish_coast(self)
+        self.patches = [patch for patch in self.patches if not patch.water]
+        if self.river_needed:
+            water.build_river(self)
+
+    @property
+    def water_points(self):
+        return self.shore_points | self.river_points
+
     def _build_walls(self):
         reserved = list(self.citadel.shape) if self.citadel is not None else []
+        reserved += self.water_points
 
         self.border = CurtainWall(self.walls_needed, self, self.inner, reserved)
+        self.border.mask_water(self)
         if self.walls_needed:
             self.wall = self.border
-            self.wall.build_towers()
+            self.wall.build_towers(self)
 
         radius = self.border.get_radius()
         self.patches = [
@@ -215,7 +262,7 @@ class Model:
 
         if self.citadel is not None:
             castle = Castle(self, self.citadel)
-            castle.wall.build_towers()
+            castle.wall.build_towers(self)
             self.citadel.ward = castle
 
             if self.citadel.shape.compactness < 0.75:
@@ -257,12 +304,26 @@ class Model:
                 if road is not None:
                     self.roads.append(Polygon(road))
 
+        if not self.hub:
+            self._keep_two_roads()
+
         self._tidy_up_roads()
 
+        fixed = self.water_points
         for artery in self.arteries:
             smoothed = artery.smooth_vertex_eq(3)
             for i in range(1, len(artery) - 1):
-                artery[i].set(smoothed[i])
+                if artery[i] not in fixed:
+                    artery[i].set(smoothed[i])
+
+    def _keep_two_roads(self):
+        """Keep one road at random and the one leaving most opposite it."""
+        if len(self.roads) <= 2:
+            return
+        first = self.features.choice(self.roads)
+        others = [road for road in self.roads if road is not first]
+        second = min_by(others, lambda road: first[0].dot(road[0]))
+        self.roads = [first, second]
 
     def _tidy_up_roads(self):
         """Join streets and roads into arteries with no repeated segments."""
@@ -318,6 +379,15 @@ class Model:
             index = rng.randint(0, len(wards) - 1)
             wards[index], wards[index + 1] = wards[index + 1], wards[index]
 
+        if self.temple_option is not None:
+            wards = [w for w in wards if w is not Cathedral]
+            if self.temple_option:
+                wards.insert(0, Cathedral)
+        if self.greens_option is not None:
+            wards = [w for w in wards if w is not Park]
+            if self.greens_option:
+                wards[1:1] = [Park] * max(1, self.size // 10)
+
         # The rest of the inner city.
         while unassigned:
             ward_class = wards.pop(0) if wards else Slum
@@ -355,6 +425,8 @@ class Model:
     def _build_geometry(self):
         for patch in self.patches:
             patch.ward.create_geometry()
+        if self.shore:
+            water.build_piers(self)
 
     def get_neighbour(self, patch, v):
         following = patch.shape.next(v)

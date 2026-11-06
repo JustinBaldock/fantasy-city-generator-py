@@ -10,6 +10,7 @@ class Patch:
         self.ward = None
         self.within_walls = False
         self.within_city = False
+        self.water = False
 
     @staticmethod
     def from_region(region):

@@ -69,6 +69,8 @@ class Topology:
         if model.wall is not None:
             blocked += model.wall.shape
         self.blocked = {v for v in blocked if v not in model.gates}
+        # Streets cross a river at its bridges and nowhere else.
+        self.blocked |= model.river_points - model.bridge_points
 
         border = set(model.border.shape)
 
@@ -86,7 +88,8 @@ class Topology:
                 if n1 is not None and v1 not in border:
                     side.add(n1)
 
-                if n0 is not None and n1 is not None:
+                if (n0 is not None and n1 is not None
+                        and (v0, v1) not in model.river_edges):
                     n0.link(n1, distance(v0, v1))
 
     def _process_point(self, v):

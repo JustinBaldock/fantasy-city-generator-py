@@ -5,6 +5,7 @@ import math
 from . import rng
 from .geometry import GenerationError, Point, Polygon, index_of, max_by
 from .patch import Patch, find_circumference
+from .water import RIVER_WIDTH
 
 
 class CurtainWall:
@@ -102,16 +103,34 @@ class CurtainWall:
         index = model.patches.index(outer)
         model.patches[index:index + 1] = halves
 
-    def build_towers(self):
+    def mask_water(self, model):
+        """Leave out the stretches where water already guards the city."""
+        for i, edge in enumerate(self.shape.edges()):
+            if edge in model.shore_edges or edge in model.river_edges:
+                self.segments[i] = False
+
+    def build_towers(self, model):
         self.towers = []
         if self.real:
             count = len(self.shape)
             for i in range(count):
                 t = self.shape[i]
-                if (t not in self.gates
-                        and (self.segments[(i + count - 1) % count]
-                             or self.segments[i])):
+                before = self.segments[(i + count - 1) % count]
+                after = self.segments[i]
+                if t in self.gates or not (before or after):
+                    continue
+                if t in model.river_points:
+                    # The wall stops at the banks, with a tower on each side.
+                    if before:
+                        self._add_bank_tower(t, self.shape.prev(t))
+                    if after:
+                        self._add_bank_tower(t, self.shape.next(t))
+                else:
                     self.towers.append(t)
+
+    def _add_bank_tower(self, crossing, along):
+        offset = along.subtract(crossing).norm(RIVER_WIDTH / 2 + 1.0)
+        self.towers.append(crossing.add(offset))
 
     def get_radius(self):
         return max((v.length for v in self.shape), default=0.0)

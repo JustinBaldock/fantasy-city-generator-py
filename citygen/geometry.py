@@ -155,6 +155,29 @@ def distance_to_line(x1, y1, dx1, dy1, x0, y0):
     )
 
 
+def chaikin(points, iterations=2, closed=False):
+    """Round off a line of (x, y) pairs by cutting its corners.
+
+    An open line keeps its two ends where they are.
+    """
+    for _ in range(iterations):
+        if len(points) < 3:
+            return points
+        rounded = [] if closed else [points[0]]
+        pairs = list(zip(points, points[1:]))
+        if closed:
+            pairs.append((points[-1], points[0]))
+        for (x0, y0), (x1, y1) in pairs:
+            rounded.append((0.75 * x0 + 0.25 * x1, 0.75 * y0 + 0.25 * y1))
+            rounded.append((0.25 * x0 + 0.75 * x1, 0.25 * y0 + 0.75 * y1))
+        if closed:
+            points = rounded
+        else:
+            # The cuts next to each end would otherwise leave a stub.
+            points = [points[0]] + rounded[2:-1] + [points[-1]]
+    return points
+
+
 class Polygon(list):
     """A list of Points. Copying the polygon shares the points."""
 
@@ -223,6 +246,11 @@ class Polygon(list):
                 if p.x < (v1.x - v0.x) * (p.y - v0.y) / (v1.y - v0.y) + v0.x:
                     inside = not inside
         return inside
+
+    def rounded(self, iterations=3):
+        """A copy with its corners rounded off."""
+        points = chaikin([(v.x, v.y) for v in self], iterations, closed=True)
+        return Polygon(Point(x, y) for x, y in points)
 
     def offset(self, p):
         for v in self:
