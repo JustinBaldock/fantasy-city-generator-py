@@ -4,11 +4,15 @@ This module is original to this port, and nothing in it needs Qt.
 
 A dragged building shoves aside whatever it runs into, and those buildings
 shove others in turn. City walls give way: a building that reaches one
-moves that stretch of wall, with its towers and gates, and anything beyond
-the wall is moved clear. A locked building never moves, so it stops the
-dragged building, and it holds a wall back too. So does water. If a step
-can't be fitted in, it is undone and the dragged building tries to slide
-along the obstacle instead.
+bends that stretch of wall into a smooth bulge, with its towers and gates,
+and anything beyond the wall is moved clear. A locked building never moves,
+so it stops the dragged building, and it holds a wall back too. So does
+water. If a step can't be fitted in, it is undone and the dragged building
+tries to slide along the obstacle instead.
+
+A wall has too few corners to curve, so a stretch about to bend gets more.
+They are added to the outlines of the wards along it as well, and they have
+no towers of their own.
 
 Neighbouring buildings often share corner points, so a building is never
 moved by changing its points. It gets new ones instead. The polygons
@@ -17,7 +21,7 @@ themselves stay in their wards, so drawing and exports see the moves.
 
 import math
 
-from .geometry import Point
+from .geometry import Point, index_of
 from .layers import THICK_STROKE
 from .water import RIVER_WIDTH
 
@@ -29,8 +33,18 @@ TOUCHING = 0.05  # Overlaps smaller than this are neighbours just touching.
 PUSH_GAP = 0.15  # Pushed buildings end up this far apart.
 RIVER_MARGIN = 0.3
 WALL_MARGIN = 0.1
-WALL_EASE = 0.05  # How far past the limit a wall is moved each time.
+WALL_EASE = 0.05  # How far a squeezed building is moved past the limit.
+WALL_SLACK = 0.8  # How far past the limit a wall is moved, to save moving it.
+WALL_MAX_MOVE = 2.0  # The furthest a corner goes in one push, not to skip a house.
 WALL_TRIES = 4  # How many times one building may move a wall in a step.
+WALL_REACH = 20.0  # How far along a wall each way even a small push bends it.
+WALL_MAX_REACH = 90.0  # How far along a wall each way any push can bend it.
+WALL_SPREAD = 1.5  # How much further for each unit the wall has moved already.
+WALL_SEGMENT = 7.0  # The longest edge in a stretch of wall that is bending.
+WALL_LEVEL = 2  # How many corners each way decide which way a wall is facing.
+WALL_EASING = 0.5  # How much of an inward corner is taken out each push.
+ROAD_GAP = 2.0  # How far ahead of a moving wall a road is carried.
+MIN_SHARE = 0.25  # Limits the swing of a wall that is held near the push.
 MAX_SLIDES = 200  # The most steps one pointer move can take along an obstacle.
 MAX_PUSHES_PER_MOVE = 2000  # The shoving allowed for one move of the pointer.
 RETRY_DISTANCE = 1.0  # How far the pointer must go before a stuck drag retries.
@@ -117,8 +131,13 @@ def _segments_cross(ax, ay, bx, by, cx, cy, dx, dy):
             and side(cx, cy, dx, dy, ax, ay) * side(cx, cy, dx, dy, bx, by) < 0)
 
 
-def _gap_to_hull(hull, polygon, part):
-    """How far a building is from a piece of wall, past its margin."""
+def _gap_to_hull(building, part):
+    """How far a building is from a piece of wall, past its margin.
+
+    A building overlapping the wall gets a figure for how far through it has
+    gone, so that it can't be pushed on through without anyone noticing.
+    """
+    hull = building.hull
     ax, ay, bx, by, margin = part[:5]
     count = len(hull)
     nearest = math.inf
@@ -126,14 +145,36 @@ def _gap_to_hull(hull, polygon, part):
         px, py = hull[i]
         qx, qy = hull[(i + 1) % count]
         if _segments_cross(px, py, qx, qy, ax, ay, bx, by):
-            return -margin
+            return -margin - _depth_through(building, part)
         nearest = min(nearest,
                       _distance_to_segment(px, py, ax, ay, bx, by),
                       _distance_to_segment(ax, ay, px, py, qx, qy),
                       _distance_to_segment(bx, by, px, py, qx, qy))
-    if polygon.contains_point(Point(ax, ay)):
-        return -margin
+    if building.polygon.contains_point(Point(ax, ay)):
+        return -margin - _depth_through(building, part)
     return nearest - margin
+
+
+def _depth_through(building, part):
+    """How far a building sticks out past the far side of a piece of wall."""
+    ax, ay = part[:2]
+    x, y = part[8]
+    if building.ward.patch not in part[7].patches:
+        x, y = -x, -y
+    return max(0.0, max((px - ax) * x + (py - ay) * y
+                        for px, py in building.hull))
+
+
+def _bulge_share(along, grown):
+    """A corner's share of a push, from 0 at the peak to 1 at the far end.
+
+    The bulge itself is a cosine curve, which leaves the unmoved wall and
+    rounds its peak with no kink. While a bulge is also widening, its sides
+    have to move faster than its peak to keep that shape, which is what the
+    second term does. Without it the sides fall behind and form a wedge.
+    """
+    wave = math.pi * along
+    return (1 + math.cos(wave)) / 2 + grown * along * math.pi / 2 * math.sin(wave)
 
 
 class Building:
@@ -187,9 +228,14 @@ class CityEditor:
         self._drag_start = None
         self._drag_walls = None
         self._drag_origin = None
+        self._drag_lists = None
         self.wall_parts = {}
         self.all_wall_parts = {}
         self.wall_allowance = {}
+        self.released = {}
+        self.wall_home = {}
+        self.bank_towers = {}
+        self.changed_lists = {}
         self.squeezed = {}
         self.pushes_spent = 0
         self._stuck_at = None
@@ -200,6 +246,7 @@ class CityEditor:
                     self.buildings.append(Building(polygon, patch.ward))
         for building in self.buildings:
             self._index(building)
+        self._find_bank_towers()
         self._index_walls()
         self._note_wall_allowances()
 
@@ -211,27 +258,87 @@ class CityEditor:
             walls.append((self.model.citadel.ward.wall, THICK_STROKE * 1.5))
         return walls
 
+    def _find_bank_towers(self):
+        """Note the towers that stand beside a river, not on a wall corner."""
+        for wall, _ in self._walls():
+            crossings = [v for v in wall.shape if v in self.model.river_points]
+            for tower in wall.towers:
+                if tower in wall.shape or not crossings:
+                    continue
+                crossing = min(crossings, key=lambda v: math.hypot(
+                    v.x - tower.x, v.y - tower.y))
+                step = max((1, -1), key=lambda s: self._leans_towards(
+                    wall, crossing, s, tower))
+                self.bank_towers[tower] = (crossing, step)
+
+    @staticmethod
+    def _along_wall(wall, point, step):
+        shape = wall.shape
+        return shape[(index_of(shape, point) + step) % len(shape)]
+
+    def _leans_towards(self, wall, crossing, step, tower):
+        along = self._along_wall(wall, crossing, step)
+        return ((along.x - crossing.x) * (tower.x - crossing.x)
+                + (along.y - crossing.y) * (tower.y - crossing.y)
+                ) / (math.hypot(along.x - crossing.x, along.y - crossing.y)
+                     or 1.0)
+
+    def _follow_banks(self, wall, moved_walls):
+        """Keep each tower by a river on the line of its wall."""
+        for tower, (crossing, step) in self.bank_towers.items():
+            if tower not in wall.towers:
+                continue
+            along = self._along_wall(wall, crossing, step)
+            size = math.hypot(along.x - crossing.x, along.y - crossing.y)
+            if size == 0:
+                continue
+            reach = math.hypot(tower.x - crossing.x, tower.y - crossing.y)
+            moved_walls.setdefault(tower, (tower.x, tower.y))
+            tower.x = crossing.x + (along.x - crossing.x) / size * reach
+            tower.y = crossing.y + (along.y - crossing.y) / size * reach
+
     def _index_walls(self):
         """Note which squares of map have walls, gates or towers in them.
 
-        Each part keeps the points it came from, so that it can be moved.
+        Each part keeps the points it came from, so that it can be moved, and
+        the way out of the walled area from it.
         """
         self.wall_parts = {}
         self.all_wall_parts = {}
         for wall, tower_radius in self._walls():
+            shape = wall.shape
+            winding = sum(a.x * b.y - b.x * a.y for a, b in shape.edges())
+
+            def outward(a, b):
+                x, y = b.y - a.y, a.x - b.x
+                size = math.hypot(x, y) or 1.0
+                if winding < 0:
+                    size = -size
+                return x / size, y / size
+
             line = THICK_STROKE / 2 + WALL_MARGIN
-            for i, (a, b) in enumerate(wall.shape.edges()):
+            for i, (a, b) in enumerate(shape.edges()):
                 if wall.segments[i]:
-                    self._add_wall_part(a.x, a.y, b.x, b.y, line, a, b)
+                    self._add_wall_part(a.x, a.y, b.x, b.y, line, a, b, wall,
+                                        outward(a, b))
             for t in wall.towers:
+                if t in self.bank_towers:
+                    a, step = self.bank_towers[t]
+                    b = self._along_wall(wall, a, step)
+                    way = outward(a, b) if step > 0 else outward(b, a)
+                else:
+                    a = b = t
+                    way = outward(shape.prev(t), shape.next(t))
                 self._add_wall_part(t.x, t.y, t.x, t.y,
-                                    tower_radius + WALL_MARGIN, t, t)
+                                    tower_radius + WALL_MARGIN, a, b, wall, way)
             for gate in wall.gates:
-                along = wall.shape.next(gate).subtract(wall.shape.prev(gate))
+                along = shape.next(gate).subtract(shape.prev(gate))
                 along = along.norm(THICK_STROKE * 1.5)
                 self._add_wall_part(gate.x - along.x, gate.y - along.y,
                                     gate.x + along.x, gate.y + along.y,
-                                    THICK_STROKE + WALL_MARGIN, gate, gate)
+                                    THICK_STROKE + WALL_MARGIN, gate, gate,
+                                    wall,
+                                    outward(shape.prev(gate), shape.next(gate)))
 
     def _note_wall_allowances(self):
         """Let buildings that start out close to a wall stay that close."""
@@ -240,8 +347,8 @@ class CityEditor:
             if gap < 0:
                 self.wall_allowance[building] = gap
 
-    def _add_wall_part(self, ax, ay, bx, by, margin, a, b):
-        part = (ax, ay, bx, by, margin, a, b)
+    def _add_wall_part(self, ax, ay, bx, by, margin, a, b, wall, way):
+        part = (ax, ay, bx, by, margin, a, b, wall, way)
         self.all_wall_parts[part] = True
         for i, j in self._cells_along(part, spread=1):
             self.wall_parts.setdefault((i, j), {})[part] = True
@@ -267,7 +374,7 @@ class CityEditor:
         return found
 
     def _wall_gap(self, building):
-        return min((_gap_to_hull(building.hull, building.polygon, part)
+        return min((_gap_to_hull(building, part)
                     for part in self._nearby_wall_parts(building)
                     if building.may_reach(part)),
                    default=math.inf)
@@ -280,24 +387,22 @@ class CityEditor:
         for part in self._nearby_wall_parts(building):
             if not building.may_reach(part):
                 continue
-            gap = _gap_to_hull(building.hull, building.polygon, part)
+            gap = _gap_to_hull(building, part)
             if gap < lowest:
                 lowest = gap
                 tightest = part
         return tightest, limit - lowest
 
-    @staticmethod
-    def _away_from(part, x, y):
-        """The way a piece of wall lies from a point, as a unit vector."""
-        ax, ay, bx, by = part[:4]
-        if ax == bx and ay == by:
-            nx, ny = ax - x, ay - y
-        else:
-            nx, ny = ay - by, bx - ax
-            if nx * (ax - x) + ny * (ay - y) < 0:
-                nx, ny = -nx, -ny
-        size = math.hypot(nx, ny) or 1.0
-        return nx / size, ny / size
+    def _away_from(self, part, building):
+        """The way a piece of wall lies from a building, as a unit vector.
+
+        This goes by the ward the building is in. Its position won't do, as
+        the wall around a bulge can have its middle on the wrong side.
+        """
+        wall, (x, y) = part[7:9]
+        if building.ward.patch in wall.patches:
+            return x, y
+        return -x, -y
 
     def _clear_walls(self, building, moved_walls):
         """Move any wall this building has reached. False if it won't go."""
@@ -305,37 +410,325 @@ class CityEditor:
             part, depth = self._tightest_wall_part(building)
             if part is None:
                 return True
+            if self._add_wall_corners(part):
+                self._index_walls()
+                part, depth = self._tightest_wall_part(building)
+                if part is None:
+                    return True
 
-            fixed = self.model.water_points
-            free = [p for p in dict.fromkeys(part[5:7]) if p not in fixed]
-            if not free:
+            motion = self._away_from(part, building)
+            points = self._bend_wall(part, building, depth, moved_walls)
+            if not points:
                 return False
-
-            cx, cy = building.center()
-            nx, ny = self._away_from(part, cx, cy)
-            # With one end held, the other has to swing further.
-            amount = (depth + WALL_EASE) * (2 / len(free) if len(part[5:7]) > 1
-                                            and part[5] is not part[6] else 1)
-            for point in free:
-                moved_walls.setdefault(point, (point.x, point.y))
-                point.x += nx * amount
-                point.y += ny * amount
-            self._index_walls()
-            self._note_squeezed(building, free)
+            self._note_squeezed(building, points, motion)
         return self._tightest_wall_part(building)[0] is None
 
-    def _note_squeezed(self, pusher, points):
-        """Find the buildings a moved piece of wall has run into."""
+    def _home(self, point):
+        """Where a corner of a wall stood when the city was built."""
+        return self.wall_home.get(point, (point.x, point.y))
+
+    def _raised(self, point):
+        """How far a corner of a wall has moved since the city was built."""
+        x, y = self._home(point)
+        return math.hypot(point.x - x, point.y - y)
+
+    def _reach(self, part):
+        """How far along the wall, each way, a push at this part bends it.
+
+        Returns that and how much of it comes from the wall having moved
+        already, from 0 to 1. The further a wall has moved the wider it
+        bends, so that a bulge stays a broad curve and doesn't become a spike.
+        Distances are along the wall as it was built, which keeps the curve
+        the same shape while the wall stretches.
+        """
+        wall = part[7]
+        homes = [self._home(v) for v in wall.shape]
+        perimeter = sum(math.hypot(a[0] - b[0], a[1] - b[1])
+                        for a, b in zip(homes, homes[1:] + homes[:1]))
+        grown = WALL_SPREAD * max(self._raised(part[5]), self._raised(part[6]))
+        reach = WALL_REACH + grown
+        limit = min(perimeter / 4, WALL_MAX_REACH)
+        if reach > limit:
+            return limit, 0.0
+        return reach, grown / reach
+
+    def _add_wall_corners(self, part):
+        """Divide the long edges a push is about to bend. True if any were."""
+        wall = part[7]
+        shape = wall.shape
+        reach = self._reach(part)[0]
+        x, y = self._home(part[5])
+
+        added = False
+        for i in range(len(shape) - 1, -1, -1):
+            a = shape[i]
+            b = shape[(i + 1) % len(shape)]
+            length = math.hypot(a.x - b.x, a.y - b.y)
+            if (wall.segments[i] and length > WALL_SEGMENT
+                    and _distance_to_segment(x, y, *self._home(a),
+                                             *self._home(b)) < reach + length):
+                self._divide_edge(a, b, math.ceil(length / WALL_SEGMENT))
+                added = True
+        return added
+
+    def _divide_edge(self, a, b, pieces):
+        """Put new corners on an edge, in everything that shares that edge."""
+        home_a = self._home(a)
+        home_b = self._home(b)
+        middle = []
+        for i in range(1, pieces):
+            t = i / pieces
+            point = Point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+            self.wall_home[point] = (home_a[0] + (home_b[0] - home_a[0]) * t,
+                                     home_a[1] + (home_b[1] - home_a[1]) * t)
+            middle.append(point)
+
+        for wall, _ in self._walls():
+            self._note_list(wall.segments)
+            for first, last, points in ((a, b, middle), (b, a, middle[::-1])):
+                index = wall.shape.find_edge(first, last)
+                if index != -1:
+                    wall.segments[index + 1:index + 1] = [True] * len(points)
+                    self._insert_corners(wall.shape, index, points)
+
+        for patch in self.model.patches:
+            for first, last, points in ((a, b, middle), (b, a, middle[::-1])):
+                index = patch.shape.find_edge(first, last)
+                if index != -1:
+                    self._insert_corners(patch.shape, index, points)
+
+    def _insert_corners(self, polygon, index, points):
+        self._note_list(polygon)
+        polygon[index + 1:index + 1] = points
+
+    def _note_list(self, items):
+        self.changed_lists.setdefault(id(items), (items, list(items)))
+
+    def _restore_lists(self, saved):
+        for items, contents in saved.values():
+            items[:] = contents
+
+    def _bend_wall(self, part, building, depth, moved_walls):
+        """Bulge a wall away from a building. Returns the corners moved."""
+        a, b, wall = part[5:8]
+        cx, cy = building.center()
+        ways = self._corner_ways(wall, building)
+        size = depth + WALL_SLACK
+        fixed = self.model.water_points
+
+        # How far along the edge the building is touching it.
+        along = 0.0
+        length = math.hypot(b.x - a.x, b.y - a.y)
+        if a is not b and length > 0:
+            along = ((cx - a.x) * (b.x - a.x)
+                     + (cy - a.y) * (b.y - a.y)) / (length * length)
+            along = max(0.0, min(1.0, along))
+
+        home_a = self._home(a)
+        home_b = self._home(b)
+        span = math.hypot(home_b[0] - home_a[0], home_b[1] - home_a[1])
+        shares = self._shares(wall, a, -1, along * span, part, ways, size, fixed)
+        if a is b:
+            if a not in shares:
+                return {}
+            start = self._along_wall(wall, a, 1)
+            home = self._home(start)
+            gap = math.hypot(home[0] - home_a[0], home[1] - home_a[1])
+        else:
+            start = b
+            gap = (1 - along) * span
+        shares.update(self._shares(wall, start, 1, gap, part, ways, size, fixed))
+
+        share = (1 - along) * shares.get(a, 0.0) + along * shares.get(b, 0.0)
+        if share == 0:
+            return {}
+
+        # The wall must clear the building where they touch, so the rest of
+        # the bulge scales from there. A wall held close by swings further.
+        scale = size / max(share, MIN_SHARE)
+        scale = min(scale, WALL_MAX_MOVE / max(shares.values()))
+        spots = {point: (point.x, point.y) for point in shares}
+        for point, weight in shares.items():
+            moved_walls.setdefault(point, spots[point])
+            self.wall_home.setdefault(point, spots[point])
+            point.x += ways[point][0] * scale * weight
+            point.y += ways[point][1] * scale * weight
+        self._ease_corners(wall, shares, ways, moved_walls)
+        self._follow_banks(wall, moved_walls)
+        self._index_walls()
+
+        if self._wall_gone_wrong(wall, shares):
+            for point, (x, y) in spots.items():
+                point.x = x
+                point.y = y
+            self._follow_banks(wall, moved_walls)
+            self._index_walls()
+            return {}
+
+        self._carry_roads(wall, shares, ways, moved_walls)
+        return shares
+
+    def _wall_gone_wrong(self, wall, points):
+        """True if a push put a wall in water or took it across a wall.
+
+        Every wall is checked against itself. A city wall being pushed isn't
+        checked against the castle, which it moves away from. The two share
+        corners, so they can graze each other where they join. A castle wall
+        mustn't break out of the city wall, though.
+        """
+        if any(self._water_at(point.x, point.y) for point in points):
+            return True
+        city_wall = wall is self.model.wall
         for part in self.all_wall_parts:
-            if part[5] not in points and part[6] not in points:
+            a, b = part[5:7]
+            if a is b or (a not in points and b not in points):
                 continue
-            for cell in self._cells_along(part, spread=1):
-                for building in self.grid.get(cell, {}):
-                    if (building is pusher or building in self.squeezed
-                            or not building.may_reach(part)):
+            ax, ay, bx, by = part[:4]
+            for cell in self._cells_along(part):
+                for other in self.wall_parts.get(cell, ()):
+                    c, d = other[5:7]
+                    if (c is d or c is a or c is b or d is a or d is b
+                            or (city_wall and other[7] is not part[7])):
                         continue
-                    if self._tightest_wall_part(building)[0] is not None:
-                        self.squeezed[building] = True
+                    if _segments_cross(ax, ay, bx, by, *other[:4]):
+                        return True
+        return False
+
+    def _ease_corners(self, wall, points, ways, moved_walls):
+        """Fill out the inward corners where a bulge leaves the wall.
+
+        These only move with the push, so they can't close in on the building
+        behind it, and left alone they fold up into a sharp crease.
+        """
+        shape = wall.shape
+        fixed = self.model.water_points
+        for point in points:
+            if point in fixed:
+                continue
+            index = index_of(shape, point)
+            before = shape[index - 1]
+            after = shape[(index + 1) % len(shape)]
+            x = (before.x + after.x) / 2 - point.x
+            y = (before.y + after.y) / 2 - point.y
+            x *= WALL_EASING
+            y *= WALL_EASING
+            if (x * ways[point][0] + y * ways[point][1] > 0
+                    and not self._water_at(point.x + x, point.y + y)):
+                moved_walls.setdefault(point, (point.x, point.y))
+                self.wall_home.setdefault(point, (point.x, point.y))
+                point.x += x
+                point.y += y
+
+    def _carry_roads(self, wall, points, ways, moved_walls):
+        """Take any road a wall has passed along with it, ahead of the wall.
+
+        Only the gates may let a road through a wall.
+        """
+        if wall is not self.model.wall or not points:
+            return
+        left = min(p.x for p in points) - ROAD_GAP
+        right = max(p.x for p in points) + ROAD_GAP
+        top = min(p.y for p in points) - ROAD_GAP
+        bottom = max(p.y for p in points) + ROAD_GAP
+        fixed = self.model.water_points
+        for road in self.model.roads:
+            for point in road:
+                if (not left < point.x < right or not top < point.y < bottom
+                        or point in wall.shape or point in fixed
+                        or not wall.shape.contains_point(point)):
+                    continue
+                nearest = min(points, key=lambda p: math.hypot(
+                    p.x - point.x, p.y - point.y))
+                moved_walls.setdefault(point, (point.x, point.y))
+                point.x = nearest.x + ways[nearest][0] * ROAD_GAP
+                point.y = nearest.y + ways[nearest][1] * ROAD_GAP
+
+    def _corner_ways(self, wall, building):
+        """The way each corner of a wall moves to get away from a building.
+
+        Each corner goes straight out from the wall where it stands, so a
+        bulge swells like a balloon. If all went the same way, the sides of
+        the bulge would only slide along themselves and leave a narrow point.
+        """
+        shape = wall.shape
+        count = len(shape)
+        winding = sum(a.x * b.y - b.x * a.y for a, b in shape.edges())
+        sign = 1 if (winding > 0) == (building.ward.patch in wall.patches) else -1
+        ways = {}
+        for i, point in enumerate(shape):
+            before = shape[(i - WALL_LEVEL) % count]
+            after = shape[(i + WALL_LEVEL) % count]
+            x, y = after.y - before.y, before.x - after.x
+            size = math.hypot(x, y) or 1.0
+            ways[point] = (x / size * sign, y / size * sign)
+        return ways
+
+    def _shares(self, wall, start, step, distance, part, ways, size, fixed):
+        """Each corner's share of a push, going one way along a wall."""
+        shape = wall.shape
+        reach, grown = self._reach(part)
+        found = []
+        index = index_of(shape, start)
+        for _ in range(len(shape)):
+            point = shape[index]
+            if distance >= reach:
+                break
+            if point in fixed or self._would_hit(point, ways[point], size * 2):
+                reach = distance
+                grown = 0.0
+                break
+            found.append((point, distance))
+            index = (index + step) % len(shape)
+            x, y = self._home(point)
+            home = self._home(shape[index])
+            distance += math.hypot(home[0] - x, home[1] - y)
+        if reach <= 0:
+            return {}
+        return {point: _bulge_share(gap / reach, grown)
+                for point, gap in found}
+
+    def _would_hit(self, point, way, size):
+        """True if a push would take a wall corner into water or a lock."""
+        x = point.x + way[0] * size
+        y = point.y + way[1] * size
+        if self._water_at(x, y):
+            return True
+        for building in self.locked:
+            after = math.hypot(x - building.cx, y - building.cy)
+            if (after < building.radius + THICK_STROKE
+                    and after < math.hypot(point.x - building.cx,
+                                           point.y - building.cy)):
+                return True
+        return False
+
+    def _note_squeezed(self, pusher, points, motion):
+        """Find the buildings a moved piece of wall has run into.
+
+        A building that began close to a wall may stay close only until that
+        wall comes towards it. Otherwise the wall would pass straight over it.
+        """
+        cells = {}
+        for part in self.all_wall_parts:
+            if part[5] in points or part[6] in points:
+                cells.update(self._cells_along(part, spread=1))
+        nearby = {}
+        for cell in cells:
+            nearby.update(self.grid.get(cell, {}))
+
+        for building in nearby:
+            if building is pusher or building in self.squeezed:
+                continue
+            if building in self.wall_allowance:
+                for part in self._nearby_wall_parts(building):
+                    x, y = self._away_from(part, building)
+                    if (part[5] in points or part[6] in points) and (
+                            x * motion[0] + y * motion[1] < 0
+                            and building.may_reach(part)):
+                        self.released[building] = self.wall_allowance.pop(
+                            building)
+                        break
+            if self._tightest_wall_part(building)[0] is not None:
+                self.squeezed[building] = True
 
     @property
     def has_changes(self):
@@ -392,22 +785,24 @@ class CityEditor:
     def unlock_all(self):
         self.locked.clear()
 
-    def _on_water(self, building):
+    def _water_at(self, x, y):
         model = self.model
-        for x, y in building.corners():
-            if model.sea is not None and model.sea.contains_point(Point(x, y)):
-                return True
-            reach = RIVER_WIDTH / 2 + RIVER_MARGIN
-            for a, b in zip(model.river, model.river[1:]):
-                if _distance_to_segment(x, y, a.x, a.y, b.x, b.y) < reach:
-                    return True
-        return False
+        if model.sea is not None and model.sea.contains_point(Point(x, y)):
+            return True
+        reach = RIVER_WIDTH / 2 + RIVER_MARGIN
+        return any(_distance_to_segment(x, y, a.x, a.y, b.x, b.y) < reach
+                   for a, b in zip(model.river, model.river[1:]))
+
+    def _on_water(self, building):
+        return any(self._water_at(x, y) for x, y in building.corners())
 
     def _try_step(self, mover, dx, dy):
         """Move a building and clear its way. False if it won't fit."""
         before = {}
         moved_walls = {}
         self.squeezed = {}
+        self.changed_lists = {}
+        self.released = {}
 
         def place_back(building, x, y):
             building.shift(-x, -y)
@@ -429,11 +824,14 @@ class CityEditor:
             for building, corners in before.items():
                 building.place(corners)
                 self._reindex(building)
+            self._restore_lists(self.changed_lists)
             for point, (x, y) in moved_walls.items():
                 point.x = x
                 point.y = y
-            if moved_walls:
+            if moved_walls or self.changed_lists:
                 self._index_walls()
+            self.wall_allowance.update(self.released)
+            self.changed_lists = {}
             self.squeezed = {}
             return False
 
@@ -455,13 +853,15 @@ class CityEditor:
                 self.pushes_spent += 1
                 if pushes > MAX_PUSHES or building in self.locked:
                     return give_up()
-                nx, ny = self._away_from(part, *building.center())
+                nx, ny = self._away_from(part, building)
                 amount = needed + WALL_EASE
                 before.setdefault(building, building.corners())
                 building.shift(-nx * amount, -ny * amount)
                 self._reindex(building)
                 if self._on_water(building):
                     return give_up()
+                if self._tightest_wall_part(building)[0] is not None:
+                    self.squeezed[building] = True
                 if building not in waiting:
                     waiting.append(building)
 
@@ -469,6 +869,9 @@ class CityEditor:
                 break
             active = waiting.pop(0)
             for other in self._nearby(active):
+                if (math.hypot(active.cx - other.cx, active.cy - other.cy)
+                        > active.radius + other.radius):
+                    continue
                 push = overlap(active.hull, other.hull)
                 if push is None:
                     continue
@@ -498,6 +901,8 @@ class CityEditor:
                 self._drag_start.setdefault(building, corners)
             for point, spot in moved_walls.items():
                 self._drag_walls.setdefault(point, spot)
+            for key, saved in self.changed_lists.items():
+                self._drag_lists.setdefault(key, saved)
         return True
 
     def begin_move(self, building):
@@ -506,6 +911,7 @@ class CityEditor:
             return False
         self._drag_start = {}
         self._drag_walls = {}
+        self._drag_lists = {}
         self._drag_origin = building.center()
         self._stuck_at = None
         return True
@@ -557,21 +963,26 @@ class CityEditor:
     def end_move(self):
         """Finish a drag, so that it can be undone as one step."""
         if self._drag_start:
-            self.history.append((self._drag_start, self._drag_walls))
+            self.history.append((self._drag_start, self._drag_walls,
+                                 self._drag_lists))
         self._drag_start = None
         self._drag_walls = None
+        self._drag_lists = None
         self._drag_origin = None
 
     def undo(self):
         """Put back everything the last drag moved, walls included."""
         if not self.history:
             return False
-        buildings, walls = self.history.pop()
+        buildings, walls, lists = self.history.pop()
         for building, corners in buildings.items():
             building.place(corners)
             self._reindex(building)
+        self._restore_lists(lists)
         for point, (x, y) in walls.items():
             point.x = x
             point.y = y
         self._index_walls()
+        self.wall_allowance = {}
+        self._note_wall_allowances()
         return True

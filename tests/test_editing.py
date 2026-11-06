@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from citygen import export
+from citygen import editing, export
 from citygen.editing import CityEditor, convex_hull, overlap
 from citygen.geometry import Point, distance
 from citygen.layers import PALETTES
@@ -486,3 +486,233 @@ def test_every_walled_city_can_still_be_edited():
             movable += editor.drag_to(building, 0.5, 0.5)
             editor.end_move()
         assert movable > len(sample) * 0.9
+
+
+def sharpest_turn(shape):
+    worst = 0.0
+    for i, point in enumerate(shape):
+        before = shape[i - 1]
+        after = shape[(i + 1) % len(shape)]
+        into = math.atan2(point.y - before.y, point.x - before.x)
+        out = math.atan2(after.y - point.y, after.x - point.x)
+        turn = abs((out - into + math.pi) % (2 * math.pi) - math.pi)
+        worst = max(worst, turn)
+    return math.degrees(worst)
+
+
+def test_a_long_push_bends_the_wall_in_a_smooth_curve():
+    model = walled_city()
+    editor = CityEditor(model)
+    limit = sharpest_turn(model.wall.shape)
+    start = len(model.wall.shape)
+    drag_outwards(editor, outer_building(model, editor), 45)
+    assert len(model.wall.shape) > start
+    assert sharpest_turn(model.wall.shape) <= limit + 5
+
+
+def test_a_bulge_is_rounded_not_a_spike():
+    model = walled_city()
+    editor = CityEditor(model)
+    building = outer_building(model, editor)
+    home = {v: (v.x, v.y) for v in model.wall.shape}
+    drag_outwards(editor, building, 45)
+    moved = [v for v, spot in home.items()
+             if math.hypot(v.x - spot[0], v.y - spot[1]) > 10]
+    # A spike would take only the corners beside the building that far.
+    assert len(moved) >= len(home) / 4
+
+
+def test_a_small_push_only_bends_a_short_stretch():
+    model = walled_city()
+    editor = CityEditor(model)
+    home = {v: (v.x, v.y) for v in model.wall.shape}
+    drag_outwards(editor, outer_building(model, editor), 6)
+    still = [v for v, spot in home.items()
+             if math.hypot(v.x - spot[0], v.y - spot[1]) < 0.01]
+    assert len(still) >= len(home) / 2
+
+
+def test_new_wall_corners_join_the_ward_outlines():
+    model = walled_city()
+    editor = CityEditor(model)
+    drag_outwards(editor, outer_building(model, editor), 30)
+    shape = model.wall.shape
+    assert len(model.wall.segments) == len(shape)
+    for a, b in shape.edges():
+        inside = [p for p in model.wall.patches if p.shape.find_edge(a, b) != -1]
+        assert len(inside) == 1
+
+
+def test_new_wall_corners_have_no_towers():
+    model = walled_city()
+    editor = CityEditor(model)
+    towers = list(model.wall.towers)
+    drag_outwards(editor, outer_building(model, editor), 30)
+    assert all(a is b for a, b in zip(model.wall.towers, towers))
+    assert len(model.wall.towers) == len(towers)
+
+
+def test_undo_takes_away_the_new_wall_corners():
+    model = walled_city(citadel=True)
+    editor = CityEditor(model)
+    corners = list(model.wall.shape)
+    start = wall_corners(model.wall)
+    segments = list(model.wall.segments)
+    outlines = {p: list(p.shape) for p in model.patches}
+    drag_outwards(editor, outer_building(model, editor), 30)
+    assert len(model.wall.shape) > len(corners)
+    assert editor.undo()
+    assert all(a is b for a, b in zip(model.wall.shape, corners))
+    assert wall_corners(model.wall) == start
+    assert model.wall.segments == segments
+    for patch, outline in outlines.items():
+        assert len(patch.shape) == len(outline)
+
+
+def test_a_step_that_fails_takes_away_its_new_wall_corners(monkeypatch):
+    model = walled_city()
+    editor = CityEditor(model)
+    building = outer_building(model, editor)
+    divided = []
+    divide = editor._divide_edge
+
+    def counting(*args):
+        divided.append(args)
+        divide(*args)
+
+    editor._divide_edge = counting
+    monkeypatch.setattr(editing, "MAX_PUSHES", -1)
+    x, y = building.center()
+    size = math.hypot(x, y)
+    editor.begin_move(building)
+    for _ in range(40):
+        divided.clear()
+        corners = len(model.wall.shape)
+        if not editor._try_step(building, x / size * 2, y / size * 2) and divided:
+            assert len(model.wall.shape) == corners
+            assert len(model.wall.segments) == corners
+            return
+    pytest.fail("no step failed after adding wall corners")
+
+
+def test_roads_stay_outside_a_bulge():
+    model = walled_city()
+    editor = CityEditor(model)
+    drag_outwards(editor, outer_building(model, editor), 45)
+    for road in model.roads:
+        for v in road:
+            if v not in model.wall.shape:
+                assert not model.wall.shape.contains_point(v)
+
+
+def test_a_building_outside_can_dent_the_wall_inwards():
+    model = walled_city()
+    editor = CityEditor(model)
+    outside = [b for b in editor.buildings
+               if b.ward.patch not in model.wall.patches]
+    building = min(outside, key=lambda b: editor._wall_gap(b))
+    x, y = building.center()
+    size = math.hypot(x, y)
+    home = wall_corners(model.wall)
+    drag(editor, building, -x / size * 8, -y / size * 8)
+    assert wall_corners(model.wall) != home
+    assert not model.wall.shape.contains_point(Point(*building.center()))
+
+
+def test_a_wall_bends_around_a_locked_building():
+    model = walled_city()
+    editor = CityEditor(model)
+    building = outer_building(model, editor)
+    outside = [b for b in editor.buildings
+               if b.ward.patch not in model.wall.patches]
+    guard = min(outside, key=lambda b: math.hypot(
+        b.cx - building.cx, b.cy - building.cy))
+    editor.set_locked(guard, True)
+    spot = guard.center()
+    drag_outwards(editor, building, 30)
+    assert guard.center() == spot
+    assert not model.wall.shape.contains_point(Point(*spot))
+
+
+def test_towers_by_a_river_stay_on_their_wall():
+    for seed in range(40):
+        model = Model(15, seed, walls=True, coast=False, river=True)
+        editor = CityEditor(model)
+        if not editor.bank_towers:
+            continue
+        for building in sorted(inside_buildings(model, editor),
+                               key=lambda b: -math.hypot(*b.center()))[:4]:
+            drag_outwards(editor, building, 15)
+        for tower, (crossing, step) in editor.bank_towers.items():
+            along = editor._along_wall(model.wall, crossing, step)
+            ax = along.x - crossing.x
+            ay = along.y - crossing.y
+            tx = tower.x - crossing.x
+            ty = tower.y - crossing.y
+            assert abs(ax * ty - ay * tx) / math.hypot(ax, ay) < 0.01
+        return
+    pytest.fail("no walled city with a river crossing")
+
+
+def test_a_building_touching_a_wall_cant_be_shoved_through_it():
+    model = walled_city()
+    editor = CityEditor(model)
+    touching = [b for b in inside_buildings(model, editor)
+                if b in editor.wall_allowance]
+    assert touching
+    for building in touching[:6]:
+        drag_outwards(editor, building, 15)
+        assert model.wall.shape.contains_point(Point(*building.center()))
+
+
+def test_a_wall_moves_a_building_it_comes_towards_though_they_touched():
+    model = walled_city()
+    editor = CityEditor(model)
+    touching = [b for b in editor.buildings if b in editor.wall_allowance
+                and b.ward.patch not in model.wall.patches]
+    if not touching:
+        pytest.skip("no building outside touches the wall")
+    near = min(touching, key=lambda b: math.hypot(*b.center()))
+    x, y = near.center()
+    inner = min(inside_buildings(model, editor), key=lambda b: math.hypot(
+        b.cx - x, b.cy - y))
+    drag(editor, inner, x - inner.cx, y - inner.cy)
+    assert not model.wall.shape.contains_point(Point(*near.center()))
+
+
+def crosses_itself(shape):
+    edges = shape.edges()
+    for i, (a, b) in enumerate(edges):
+        for c, d in edges[i + 2:]:
+            if d is a:
+                continue
+            if editing._segments_cross(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y):
+                return True
+    return False
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_walls_never_cross_themselves(seed):
+    model = Model(10, seed, walls=True, citadel=True, coast=False, river=False)
+    editor = CityEditor(model)
+    for building in sorted(inside_buildings(model, editor),
+                           key=lambda b: -math.hypot(*b.center()))[:5]:
+        drag_outwards(editor, building, 25)
+    assert not crosses_itself(model.wall.shape)
+    assert not crosses_itself(model.citadel.ward.wall.shape)
+
+
+def test_a_wall_stays_out_of_the_sea():
+    for seed in range(1, 10):
+        model = Model(15, seed, walls=True, coast=True, river=False)
+        if model.wall is None or model.sea is None:
+            continue
+        editor = CityEditor(model)
+        for building in sorted(inside_buildings(model, editor),
+                               key=lambda b: -math.hypot(*b.center()))[:4]:
+            drag_outwards(editor, building, 20)
+        for corner in model.wall.shape:
+            if corner not in model.water_points:
+                assert not model.sea.contains_point(corner)
+        return
+    pytest.fail("no walled city on a coast")
