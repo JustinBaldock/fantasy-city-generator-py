@@ -6,6 +6,8 @@ this module needs Qt.
 
 from dataclasses import dataclass, field
 
+from .geometry import chaikin
+from .water import BRIDGE_WIDTH, RIVER_WIDTH
 from .wards import (
     AdministrationWard,
     Castle,
@@ -24,11 +26,23 @@ from .wards import (
 
 NORMAL_STROKE = 0.3
 THICK_STROKE = 1.8
+PIER_WIDTH = 1.0
+LINE_ROUNDING = 2
 
 _BUILDING_WARDS = (
     Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard,
     MilitaryWard, PatriciateWard, Farm,
 )
+
+
+def _mix(colour_a, colour_b, amount):
+    """A colour part way from a to b, for amount from 0 to 1."""
+    mixed = 0
+    for shift in (16, 8, 0):
+        a = (colour_a >> shift) & 255
+        b = (colour_b >> shift) & 255
+        mixed |= round(a + (b - a) * amount) << shift
+    return mixed
 
 
 @dataclass(frozen=True)
@@ -37,6 +51,14 @@ class Palette:
     light: int
     medium: int
     dark: int
+
+    @property
+    def water(self):
+        return _mix(self.medium, self.paper, 0.2)
+
+    @property
+    def green(self):
+        return _mix(self.paper, self.light, 0.55)
 
 
 PALETTES = {
@@ -74,10 +96,40 @@ def _xy(polygon):
     return [(v.x, v.y) for v in polygon]
 
 
-def _wall_layers(wall, large, palette, prefix):
-    line = Layer(f"{prefix} wall", stroke=palette.dark, width=THICK_STROKE,
-                 join="round", polygons=[_xy(wall.shape)])
+def _rounded(line):
+    return chaikin(_xy(line), LINE_ROUNDING)
 
+
+def _pairs(pairs):
+    return [[(a.x, a.y), (b.x, b.y)] for a, b in pairs]
+
+
+def _wall_line(wall, palette, prefix):
+    """The wall, in separate runs where water interrupts it."""
+    line = Layer(f"{prefix} wall", stroke=palette.dark, width=THICK_STROKE,
+                 join="round")
+    shape = _xy(wall.shape)
+    count = len(shape)
+    if all(wall.segments):
+        line.polygons.append(shape)
+        return line
+
+    start = wall.segments.index(False)
+    run = []
+    for step in range(1, count + 1):
+        i = (start + step) % count
+        if wall.segments[i]:
+            run = run or [shape[i]]
+            run.append(shape[(i + 1) % count])
+        elif run:
+            line.polylines.append(run)
+            run = []
+    if run:
+        line.polylines.append(run)
+    return line
+
+
+def _wall_features(wall, large, palette, prefix):
     gates = Layer(f"{prefix} gates", stroke=palette.dark,
                   width=THICK_STROKE * 2, cap="flat")
     for gate in wall.gates:
@@ -90,18 +142,21 @@ def _wall_layers(wall, large, palette, prefix):
     radius = THICK_STROKE * (1.5 if large else 1)
     towers = Layer(f"{prefix} towers", fill=palette.dark,
                    circles=[(t.x, t.y, radius) for t in wall.towers])
-    return [line, gates, towers]
+    return [gates, towers]
 
 
 def build_layers(model, palette):
     """Everything on the map, in drawing order."""
-    roads = [_xy(road) for road in model.roads]
+    roads = [_rounded(road) for road in model.roads]
     layers = [
         Layer("Road edges", stroke=palette.medium,
               width=MAIN_STREET + NORMAL_STROKE, cap="flat", polylines=roads),
         Layer("Roads", stroke=palette.paper,
               width=MAIN_STREET - NORMAL_STROKE, cap="flat", polylines=roads),
     ]
+    if model.sea is not None:
+        layers.append(Layer("Sea", fill=palette.water,
+                            polygons=[_xy(model.sea)]))
 
     buildings = []
     parks = []
@@ -113,29 +168,48 @@ def build_layers(model, palette):
         if isinstance(ward, Castle):
             castles += shapes
         elif isinstance(ward, Cathedral):
-            temples += shapes
+            buildings += shapes
+            temples += [_xy(polygon) for polygon in ward.landmarks]
         elif isinstance(ward, _BUILDING_WARDS):
             buildings += shapes
         elif isinstance(ward, Park):
             parks += shapes
 
-    layers.append(Layer("Parks", fill=palette.medium, stroke=palette.medium,
-                        width=NORMAL_STROKE, polygons=parks))
+    layers.append(Layer("Greens", fill=palette.green, polygons=parks))
     layers.append(Layer("Buildings", fill=palette.light, stroke=palette.dark,
                         width=NORMAL_STROKE, polygons=buildings))
 
     # A heavy line drawn first, with the fill on top, leaves an outer outline.
-    for name, shapes, thickness in (
-            ("Castle", castles, NORMAL_STROKE * 2),
-            ("Temple", temples, NORMAL_STROKE)):
-        layers.append(Layer(f"{name} outline", stroke=palette.dark,
-                            width=thickness * 2, polygons=shapes))
-        layers.append(Layer(name, fill=palette.light, polygons=shapes))
+    layers.append(Layer("Castle outline", stroke=palette.dark,
+                        width=NORMAL_STROKE * 4, polygons=castles))
+    layers.append(Layer("Castle", fill=palette.light, polygons=castles))
+    layers.append(Layer("Temple", fill=palette.dark, polygons=temples))
 
+    walls = []
     if model.wall is not None:
-        layers += _wall_layers(model.wall, False, palette, "City")
+        walls.append((model.wall, False, "City"))
     if model.citadel is not None:
-        layers += _wall_layers(model.citadel.ward.wall, True, palette, "Castle")
+        walls.append((model.citadel.ward.wall, True, "Castle"))
+
+    for wall, _, prefix in walls:
+        layers.append(_wall_line(wall, palette, prefix))
+
+    # Over the walls, so the river makes its own gap in them.
+    if model.river:
+        layers.append(Layer("River", stroke=palette.water, width=RIVER_WIDTH,
+                            cap="flat", join="round",
+                            polylines=[_rounded(model.river)]))
+    for name, pairs, width in (("Bridge", model.bridges, BRIDGE_WIDTH),
+                               ("Pier", model.piers, PIER_WIDTH)):
+        layers.append(Layer(f"{name} edges", stroke=palette.medium,
+                            width=width + NORMAL_STROKE, cap="flat",
+                            polylines=_pairs(pairs)))
+        layers.append(Layer(f"{name}s", stroke=palette.paper,
+                            width=width - NORMAL_STROKE, cap="flat",
+                            polylines=_pairs(pairs)))
+
+    for wall, large, prefix in walls:
+        layers += _wall_features(wall, large, palette, prefix)
 
     return layers
 

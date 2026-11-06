@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -219,8 +221,18 @@ class MainWindow(QMainWindow):
         self.new_map()
 
     def _build_side_panel(self):
+        """The controls, which scroll if the screen is too short for them."""
+        scroller = QScrollArea()
+        scroller.setWidget(self._build_controls())
+        scroller.setWidgetResizable(True)
+        scroller.setFrameShape(QFrame.Shape.NoFrame)
+        scroller.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroller.setFixedWidth(256)
+        return scroller
+
+    def _build_controls(self):
         panel = QWidget()
-        panel.setFixedWidth(240)
         layout = QVBoxLayout(panel)
 
         new_button = QPushButton("New map")
@@ -256,11 +268,35 @@ class MainWindow(QMainWindow):
         self.walls_box = TriState()
         self.citadel_box = TriState()
         self.plaza_box = TriState()
+        self.temple_box = TriState()
+        self.greens_box = TriState()
+        self.coast_box = TriState()
+        self.river_box = TriState()
+        self.roads_box = QComboBox()
+        self.roads_box.addItem("All gates", True)
+        self.roads_box.addItem("Two roads", False)
+        self.roads_box.setToolTip("How many roads lead out of town")
         for label, box in (("Walls", self.walls_box),
                            ("Castle", self.citadel_box),
-                           ("Plaza", self.plaza_box)):
+                           ("Plaza", self.plaza_box),
+                           ("Temple", self.temple_box),
+                           ("Greens", self.greens_box),
+                           ("Coast", self.coast_box),
+                           ("River", self.river_box),
+                           ("Roads", self.roads_box)):
             box.currentIndexChanged.connect(self.build)
             city_layout.addRow(label, box)
+
+        self.sea_box = QSpinBox()
+        self.sea_box.setRange(-1, 359)
+        self.sea_box.setValue(-1)
+        self.sea_box.setSpecialValueText("Random")
+        self.sea_box.setSuffix("\N{DEGREE SIGN}")
+        self.sea_box.setKeyboardTracking(False)
+        self.sea_box.setToolTip(
+            "The compass bearing of the sea, 0 for north and 90 for east")
+        self.sea_box.valueChanged.connect(self.build)
+        city_layout.addRow("Sea to", self.sea_box)
         layout.addWidget(city_box)
 
         self.palette_box = QComboBox()
@@ -333,6 +369,12 @@ class MainWindow(QMainWindow):
                 walls=self.walls_box.currentData(),
                 citadel=self.citadel_box.currentData(),
                 plaza=self.plaza_box.currentData(),
+                temple=self.temple_box.currentData(),
+                greens=self.greens_box.currentData(),
+                coast=self.coast_box.currentData(),
+                river=self.river_box.currentData(),
+                hub=self.roads_box.currentData(),
+                sea=None if self.sea_box.value() < 0 else self.sea_box.value(),
             )
         except GenerationError as error:
             QMessageBox.warning(self, APP_NAME, str(error))
