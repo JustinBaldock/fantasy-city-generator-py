@@ -24,9 +24,18 @@ python3 -m venv .venv
 - Walls, Castle, Plaza, Temple, Greens, Coast, River, Fields and Forests can each be Random, Yes or No. Changing one rebuilds the same seed.
 - Sea to sets the compass bearing of the coast, with 0 for north and 90 for east.
 - Roads sets whether every gate has a road, or only two roads lead out of town.
+- Homes switches between ordinary houses and gnome homes. See below. Changing it keeps the same streets, walls and water.
 - Style changes the colours without changing the map.
 - Scroll to zoom, drag to pan, and double-click to reset the view.
 - Hover over a ward to see what kind it is.
+
+## Gnome homes
+
+Set Homes to Gnome for a town of gnomes. A gnome home is a hexagon with square rooms built onto some of its straight sides, and a line on the map shows where each room joins the hexagon.
+
+Not everything is a home. Shops, workshops, warehouses and stores are plain squares and rectangles, mixed in among the homes. About half the plots in a Merchant ward are, and fewer in the others. Administration and Military wards are all rectangles, and each farm gets a home with a barn beside it when the land has space. Castles, temples and markets stay as they are.
+
+Moving, locking and exporting all work the same way. A pushed home moves whole, with its rooms.
 
 ## Moving and locking buildings
 
@@ -51,7 +60,7 @@ Exports show the moved buildings. Moves aren't saved anywhere else, so export a 
 
 This port is based on the source code Watabou published, which stopped being updated years ago. The website has moved on since then.
 
-Coasts, rivers, bridges, piers, farm fields, forests, rounded greens, temple landmarks, the Roads option and curved road drawing aren't in the published source. They are this project's own work, modelled on what the website's maps show, and no code was taken from the website. They won't match it exactly. Water follows the edges between wards, for example, so a river can't cut through the middle of one.
+Coasts, rivers, bridges, piers, farm fields, forests, rounded greens, temple landmarks, gnome homes, the Roads option and curved road drawing aren't in the published source. They are this project's own work, modelled on what the website's maps show, and no code was taken from the website. They won't match it exactly. Water follows the edges between wards, for example, so a river can't cut through the middle of one.
 
 The website's building shadows, district names, grid, compass and scale bar aren't in this app.
 
