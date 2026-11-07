@@ -10,7 +10,7 @@ gives the same city.
 import math
 import random
 
-from . import countryside, rng, water
+from . import countryside, gnomes, rng, water
 from .geometry import (
     GenerationError,
     Point,
@@ -90,13 +90,17 @@ class Model:
     hub False keeps only two roads out of town. sea is the compass bearing of
     the coast in degrees, or None to leave it to the seed.
 
+    gnome_homes True swaps the houses for gnome homes. It is never left to the
+    seed, so the same seed gives the same ordinary city unless it's asked for.
+
     coast, river, hub and the water's shape use their own random numbers, so
     a city with no water is built exactly as the original would build it.
     """
 
     def __init__(self, size=DEFAULT_SIZE, seed=-1, walls=None, citadel=None,
                  plaza=None, temple=None, greens=None, coast=None, river=None,
-                 hub=True, sea=None, fields=None, forests=None):
+                 hub=True, sea=None, fields=None, forests=None,
+                 gnome_homes=False):
         if seed > 0:
             rng.reset(seed)
         else:
@@ -108,6 +112,7 @@ class Model:
         self.temple_option = temple
         self.greens_option = greens
         self.hub = hub
+        self.gnome_homes = gnome_homes
 
         self.features = random.Random(seed)
         coast_roll = self.features.random() < COAST_CHANCE
@@ -443,6 +448,8 @@ class Model:
     def _build_geometry(self):
         for patch in self.patches:
             patch.ward.create_geometry()
+        if self.gnome_homes:
+            gnomes.build_gnome_homes(self)
         if self.shore:
             water.build_piers(self)
         countryside.build_countryside(self)

@@ -421,6 +421,12 @@ class MainWindow(QMainWindow):
         self.roads_box.addItem("All gates", True)
         self.roads_box.addItem("Two roads", False)
         self.roads_box.setToolTip("How many roads lead out of town")
+        self.homes_box = QComboBox()
+        self.homes_box.addItem("Ordinary", False)
+        self.homes_box.addItem("Gnome", True)
+        self.homes_box.setToolTip(
+            "Gnome homes are hexagons with square rooms off their sides. "
+            "Shops, stores, barns and government buildings stay rectangular.")
         features = (("Walls", self.walls_box),
                     ("Castle", self.citadel_box),
                     ("Plaza", self.plaza_box),
@@ -430,7 +436,8 @@ class MainWindow(QMainWindow):
                     ("River", self.river_box),
                     ("Fields", self.fields_box),
                     ("Forests", self.forests_box),
-                    ("Roads", self.roads_box))
+                    ("Roads", self.roads_box),
+                    ("Homes", self.homes_box))
         self.feature_boxes = [box for _, box in features]
         for label, box in features:
             box.currentIndexChanged.connect(self.build)
@@ -562,6 +569,7 @@ class MainWindow(QMainWindow):
                 sea=None if self.sea_box.value() < 0 else self.sea_box.value(),
                 fields=self.fields_box.currentData(),
                 forests=self.forests_box.currentData(),
+                gnome_homes=self.homes_box.currentData(),
             )
         except GenerationError as error:
             QMessageBox.warning(self, APP_NAME, str(error))

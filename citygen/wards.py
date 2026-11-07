@@ -20,6 +20,10 @@ MAIN_STREET = 2.0
 REGULAR_STREET = 1.0
 ALLEY = 0.6
 
+# Added to a ward's plot size for gnome homes, which need more space than a
+# house to show their shape.
+GNOME_PLOT = 30
+
 
 def _longest_edge_start(poly):
     return min_by(poly, lambda v: -poly.vector(v).length)
@@ -101,6 +105,10 @@ class Ward:
 
     label = None
     rate_location = None
+    homes = False  # Whether people live here, in gnome homes on request.
+    # With gnome homes, the share of plots that are plain squares and
+    # rectangles instead: shops, workshops, stores and government buildings.
+    rectangle_share = 0.0
 
     def __init__(self, model, patch):
         self.model = model
@@ -110,6 +118,10 @@ class Ward:
 
     def create_geometry(self):
         self.geometry = []
+
+    @property
+    def plot_bonus(self):
+        return GNOME_PLOT if self.homes and self.model.gnome_homes else 0
 
     def get_city_block(self):
         model = self.model
@@ -240,8 +252,8 @@ class CommonWard(Ward):
     def create_geometry(self):
         block = self.get_city_block()
         self.geometry = create_alleys(
-            block, self.min_sq, self.grid_chaos, self.size_chaos,
-            self.empty_prob)
+            block, self.min_sq + self.plot_bonus, self.grid_chaos,
+            self.size_chaos, self.empty_prob)
         if not self.model.is_enclosed(self.patch):
             self.filter_outskirts()
 
@@ -254,6 +266,8 @@ def _plaza_or_center(model):
 
 class CraftsmenWard(CommonWard):
     label = "Craftsmen"
+    homes = True
+    rectangle_share = 0.2
 
     def __init__(self, model, patch):
         super().__init__(
@@ -264,6 +278,8 @@ class CraftsmenWard(CommonWard):
 
 class GateWard(CommonWard):
     label = "Gate"
+    homes = True
+    rectangle_share = 0.3
 
     def __init__(self, model, patch):
         super().__init__(
@@ -274,6 +290,8 @@ class GateWard(CommonWard):
 
 class MerchantWard(CommonWard):
     label = "Merchant"
+    homes = True
+    rectangle_share = 0.5
 
     def __init__(self, model, patch):
         super().__init__(
@@ -290,6 +308,7 @@ class MerchantWard(CommonWard):
 
 class AdministrationWard(CommonWard):
     label = "Administration"
+    rectangle_share = 1.0
 
     def __init__(self, model, patch):
         super().__init__(
@@ -309,6 +328,8 @@ class AdministrationWard(CommonWard):
 
 class PatriciateWard(CommonWard):
     label = "Patriciate"
+    homes = True
+    rectangle_share = 0.1
 
     def __init__(self, model, patch):
         super().__init__(
@@ -332,6 +353,8 @@ class PatriciateWard(CommonWard):
 
 class Slum(CommonWard):
     label = "Slum"
+    homes = True
+    rectangle_share = 0.05
 
     def __init__(self, model, patch):
         super().__init__(
@@ -348,6 +371,7 @@ class Slum(CommonWard):
 
 class MilitaryWard(Ward):
     label = "Military"
+    rectangle_share = 1.0
 
     def create_geometry(self):
         block = self.get_city_block()
@@ -372,6 +396,8 @@ class MilitaryWard(Ward):
 
 class Cathedral(Ward):
     label = "Temple"
+    homes = True
+    rectangle_share = 0.15
 
     def create_geometry(self):
         """A temple in the half of the block nearest the centre.
@@ -394,7 +420,8 @@ class Cathedral(Ward):
         self.geometry = []
         for half in halves:
             if half is not precinct:
-                self.geometry += create_alleys(half, 30, 0.5, 0.6)
+                self.geometry += create_alleys(
+                    half, 30 + self.plot_bonus, 0.5, 0.6)
 
     @staticmethod
     def rate_location(model, patch):

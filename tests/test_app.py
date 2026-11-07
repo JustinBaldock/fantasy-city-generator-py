@@ -5,6 +5,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from citygen.app import MainWindow, SIZE_PRESETS
+from citygen.gnomes import GnomeHome
 from citygen.model import MAX_SIZE, MIN_SIZE
 
 
@@ -33,6 +34,23 @@ def scroll(view, position, amount):
         QPoint(0, 0), QPoint(0, amount), Qt.MouseButton.NoButton,
         Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
     QApplication.sendEvent(view, event)
+
+
+def test_homes_can_be_switched_to_gnome_homes_and_back(window):
+    def gnome_homes():
+        return sum(isinstance(building, GnomeHome)
+                   for patch in window.model.patches
+                   for building in patch.ward.geometry)
+
+    assert gnome_homes() == 0
+    seed = window.model.seed
+
+    window.homes_box.setCurrentIndex(1)
+    assert gnome_homes() > 0
+    assert window.model.seed == seed
+
+    window.homes_box.setCurrentIndex(0)
+    assert gnome_homes() == 0
 
 
 def test_hovering_names_the_ward(window):

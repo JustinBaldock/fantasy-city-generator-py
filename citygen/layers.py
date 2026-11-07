@@ -7,6 +7,7 @@ this module needs Qt.
 from dataclasses import dataclass, field
 
 from .geometry import chaikin
+from .gnomes import GnomeHome
 from .water import BRIDGE_WIDTH, RIVER_WIDTH
 from .wards import (
     AdministrationWard,
@@ -174,9 +175,13 @@ def build_layers(model, palette):
     parks = []
     castles = []
     temples = []
+    room_walls = []
     for patch in model.patches:
         ward = patch.ward
         shapes = [_xy(polygon) for polygon in ward.geometry]
+        for polygon in ward.geometry:
+            if isinstance(polygon, GnomeHome):
+                room_walls += _pairs(polygon.room_walls())
         if isinstance(ward, Castle):
             castles += shapes
         elif isinstance(ward, Cathedral):
@@ -190,6 +195,8 @@ def build_layers(model, palette):
     layers.append(Layer("Greens", fill=palette.green, polygons=parks))
     layers.append(Layer("Buildings", fill=palette.light, stroke=palette.dark,
                         width=NORMAL_STROKE, polygons=buildings))
+    layers.append(Layer("Room walls", stroke=palette.dark, width=NORMAL_STROKE,
+                        cap="flat", polylines=room_walls))
 
     # A heavy line drawn first, with the fill on top, leaves an outer outline.
     layers.append(Layer("Castle outline", stroke=palette.dark,
