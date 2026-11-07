@@ -204,7 +204,11 @@ class Building:
                           for x, y in corners)
 
     def shift(self, dx, dy):
-        self.place([(x + dx, y + dy) for x, y in self.corners()])
+        """Slide the building, which keeps its shape, so nothing is remeasured."""
+        self.polygon[:] = [Point(v.x + dx, v.y + dy) for v in self.polygon]
+        self.hull = [(x + dx, y + dy) for x, y in self.hull]
+        self.cx += dx
+        self.cy += dy
 
     def center(self):
         return self.cx, self.cy
