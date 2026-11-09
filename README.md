@@ -21,13 +21,17 @@ python3 -m venv .venv
 - Press Return, or New map, for a new map at the same size.
 - Press a size button for a new map of that kind of settlement, or set the number of wards directly, from 6 to 40.
 - To get a map back, type its seed and press Return.
-- Walls, Castle, Plaza, Temple, Greens, Coast, River, Fields and Forests can each be Random, Yes or No. Changing one rebuilds the same seed.
+- Walls, Castle, Plaza, Temple, Greens, Coast, River, Fields, Forests and Orchards can each be Random, Yes or No. Changing one rebuilds the same seed.
 - Sea to sets the compass bearing of the coast, with 0 for north and 90 for east.
 - Roads sets whether every gate has a road, or only two roads lead out of town.
 - Homes switches between burgage plots, gnome homes and classic houses. See below. Changing it keeps the same streets, walls and water.
 - Style changes the colours without changing the map.
 - Scroll to zoom, drag to pan, and double-click to reset the view.
 - Hover over a ward to see what kind it is.
+
+## Orchards
+
+Orchards are farm plots with their trees in neat rows, each with a faint hedge round it. They take some of the plots beside farmhouses, and the higher farmland near town that is too steep for fields. Turning orchards on or off leaves the other fields where they were, and forests keep out of them.
 
 ## Plots and burgage plots
 
