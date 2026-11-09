@@ -1,7 +1,13 @@
-"""Farm fields and forests.
+"""Farm fields, orchards and forests.
 
 This module is original to this port. The published source leaves the land
 around a city empty, so these are our own methods.
+
+Orchards take some of the farm plots nearest each farmhouse, and the higher
+farmland near town that is too steep for fields. Their trees stand in rows
+along the plot's longest edge. They use their own random numbers, and the
+higher land is divided after the fields, so turning orchards on or off
+leaves the fields alone.
 
 A smooth terrain pattern decides what grows where. Fields fill whole patches
 near the city. Forests ignore the patches and follow the pattern instead, so
@@ -10,8 +16,10 @@ merge into a single mass with a bumpy edge.
 """
 
 import math
+import random
 
 from .geometry import Point, distance, interpolate, max_by
+from .plots import clearance
 from .wards import Farm, Ward, create_alleys
 from .water import RIVER_WIDTH
 
@@ -30,6 +38,14 @@ FOREST_SHARE = 0.8  # The share of the visible open ground that is forest.
 LONE_TREE_BAND = 0.14
 LONE_TREE_CHANCE = 0.05
 LONE_TREE_RADIUS = (1.4, 2.2)
+
+ORCHARD_SHARE = 0.6  # Of the plots nearest a farmhouse, when it has any.
+HILL_ORCHARDS = 0.6  # The share of the higher farmland that is orchard.
+ORCHARD_REACH = 25.0  # How far from its farmhouse an orchard can be.
+ORCHARD_CHANCE = 0.5  # Of a farm having an orchard at all.
+ORCHARD_SPACING = 3.0  # Between trees in a row, and between the rows.
+ORCHARD_RADIUS = (0.9, 1.2)
+ORCHARD_EDGE = 0.4  # Kept between a tree and the edge of its orchard.
 
 CLEARING = 9.0  # Open ground between the city and any forest.
 ROAD_CLEARANCE = 2.4
@@ -146,36 +162,156 @@ def _distance_from_city(model):
     return measure
 
 
+def orchard_rows(plot, chooser, spacing=ORCHARD_SPACING, roads=()):
+    """Trees in straight rows across a plot, as (x, y, radius).
+
+    roads are (a, b) pieces of road that the trees keep clear of.
+    """
+    start = max_by(plot, lambda v: plot.vector(v).length)
+    along = plot.vector(start).norm(1.0)
+    across = along.rotate90()
+    reach_along = [v.subtract(start).dot(along) for v in plot]
+    reach_across = [v.subtract(start).dot(across) for v in plot]
+
+    # The grid is centred, with room at the edges for the biggest tree, so
+    # every row that fits is whole.
+    room = ORCHARD_RADIUS[1] + ORCHARD_EDGE
+
+    def places(low, high):
+        count = int((high - low - 2 * room) // spacing) + 1
+        if count < 1:
+            return []
+        first = (low + high - (count - 1) * spacing) / 2
+        return [first + i * spacing for i in range(count)]
+
+    trees = []
+    for row in places(min(reach_across), max(reach_across)):
+        for place in places(min(reach_along), max(reach_along)):
+            x = start.x + along.x * place + across.x * row
+            y = start.y + along.y * place + across.y * row
+            if (clearance(plot, x, y) >= room
+                    and all(_to_road(x, y, a, b) >= room + ROAD_CLEARANCE
+                            for a, b in roads)):
+                trees.append((x, y, chooser.uniform(*ORCHARD_RADIUS)))
+    return trees
+
+
+def _to_road(x, y, a, b):
+    dx = b.x - a.x
+    dy = b.y - a.y
+    length = dx * dx + dy * dy
+    t = ((x - a.x) * dx + (y - a.y) * dy) / length if length else 0.0
+    t = max(0.0, min(1.0, t))
+    return math.hypot(x - a.x - t * dx, y - a.y - t * dy)
+
+
+def _road_pieces(model):
+    return [(a, b) for road in model.roads for a, b in zip(road, road[1:])]
+
+
+def _farmhouse(ward):
+    points = [v for building in ward.geometry for v in building]
+    if not points:
+        return None
+    return Point(sum(v.x for v in points) / len(points),
+                 sum(v.y for v in points) / len(points))
+
+
+def _plant_orchards(model, farm_plots):
+    """Turn the plots nearest each farmhouse into orchards.
+
+    Returns the plots left for fields.
+    """
+    chooser = random.Random(f"{model.seed} orchards")
+    roads = _road_pieces(model)
+    left = []
+    for ward, plots in farm_plots:
+        house = _farmhouse(ward) if isinstance(ward, Farm) else None
+        if house is None or chooser.random() > ORCHARD_CHANCE:
+            left += plots
+            continue
+        near = sorted(plots, key=lambda p: distance(p.centroid, house))
+        count = max(1, round(len(near) * ORCHARD_SHARE * chooser.random()))
+        for i, plot in enumerate(near):
+            if i < count and distance(plot.centroid, house) < ORCHARD_REACH:
+                trees = orchard_rows(plot, chooser, roads=roads)
+                if trees:
+                    model.orchards.append(plot)
+                    model.orchard_trees += trees
+                    continue
+            left.append(plot)
+    return left
+
+
+def _farm_plots(ward):
+    """The ward's land cut into plots, missing any with a house on them."""
+    block = ward.get_city_block().shrink_eq(1.0)
+    if len(block) < 3 or block.square < MIN_FIELD_BLOCK:
+        return None
+    houses = [v for building in ward.geometry for v in building]
+    return [plot for plot in create_alleys(block, PLOT_SIZE, 0.25, 0.3, 0.12)
+            if len(plot) >= 3
+            and not any(plot.contains_point(v) for v in houses)]
+
+
+def _plant_hill_orchards(model, hill_plots):
+    chooser = random.Random(f"{model.seed} hill orchards")
+    roads = _road_pieces(model)
+    for ward, plots in hill_plots:
+        planted = False
+        for plot in plots:
+            if chooser.random() < HILL_ORCHARDS:
+                trees = orchard_rows(plot, chooser, roads=roads)
+                if trees:
+                    model.orchards.append(plot)
+                    model.orchard_trees += trees
+                    planted = True
+        if planted and ward.label is None:
+            ward.label = "Orchard"
+
+
 def _build_fields(model, height):
     from_city = _distance_from_city(model)
     reach = model.city_radius * FIELD_REACH
     top = _height_at_share(model, height, 1 - FIELD_SHARE)
+    farm_plots = []
+    hills = []
 
     for patch in _land_patches(model):
         ward = patch.ward
         if type(ward) not in (Ward, Farm):
             continue
         center = patch.shape.center
-        if height(center.x, center.y) > top:
-            continue
         if from_city(center) > reach:
             continue
-
-        block = ward.get_city_block().shrink_eq(1.0)
-        if len(block) < 3 or block.square < MIN_FIELD_BLOCK:
+        if height(center.x, center.y) > top:
+            hills.append(ward)
             continue
+        plots = _farm_plots(ward)
+        if plots is not None:
+            farm_plots.append((ward, plots))
 
-        for plot in create_alleys(block, PLOT_SIZE, 0.25, 0.3, 0.12):
-            if len(plot) < 3:
-                continue
-            houses = [v for building in ward.geometry for v in building]
-            if any(plot.contains_point(v) for v in houses):
-                continue
+    if model.orchards_needed:
+        hill_plots = [(ward, _farm_plots(ward)) for ward in hills]
+        _plant_hill_orchards(
+            model, [(w, p) for w, p in hill_plots if p is not None])
+        left = _plant_orchards(model, farm_plots)
+    else:
+        left = [plot for _, plots in farm_plots for plot in plots]
+    if model.fields_needed:
+        for plot in left:
             model.fields.append(plot)
             model.furrows += furrows(plot)
 
-        if ward.label is None:
+    fields = {id(plot) for plot in model.fields}
+    for ward, plots in farm_plots:
+        if ward.label is not None:
+            continue
+        if model.fields_needed and (
+                not plots or any(id(plot) in fields for plot in plots)):
             ward.label = "Fields"
+        elif plots:
+            ward.label = "Orchard"
 
 
 def _ground_for_trees(model):
@@ -198,7 +334,7 @@ def _ground_for_trees(model):
     for a, b in zip(model.river, model.river[1:]):
         ground.mark_line(a, b, RIVER_WIDTH / 2 + tree_room + 1)
 
-    for plot in model.fields:
+    for plot in model.fields + model.orchards:
         ground.mark_inside(plot)
         for a, b in plot.edges():
             ground.mark_line(a, b, tree_room)
@@ -255,10 +391,11 @@ def _build_trees(model, height):
 
 def build_countryside(model):
     """Fill the land around the city with fields and forest."""
-    if not (model.fields_needed or model.forests_needed):
+    if not (model.fields_needed or model.forests_needed
+            or model.orchards_needed):
         return
     height = _terrain(model)
-    if model.fields_needed:
+    if model.fields_needed or model.orchards_needed:
         _build_fields(model, height)
     if model.forests_needed:
         _build_trees(model, height)

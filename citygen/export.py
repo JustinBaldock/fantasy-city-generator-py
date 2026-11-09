@@ -7,7 +7,7 @@ from .layers import build_layers, map_extent
 from .plots import Plot
 from .model import size_name
 
-JSON_FORMAT_VERSION = 7
+JSON_FORMAT_VERSION = 8
 
 
 def _xy(polygon):
@@ -67,6 +67,9 @@ def city_to_dict(model):
         "fields": [_xy(plot) for plot in model.fields],
         "trees": [[round(x, 2), round(y, 2), round(r, 2)]
                   for x, y, r in model.trees],
+        "orchards": [_xy(plot) for plot in model.orchards],
+        "orchard_trees": [[round(x, 2), round(y, 2), round(r, 2)]
+                          for x, y, r in model.orchard_trees],
         "wall": _wall(model.wall) if model.wall is not None else None,
         "castle_wall": (_wall(model.citadel.ward.wall)
                         if model.citadel is not None else None),

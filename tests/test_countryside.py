@@ -1,4 +1,6 @@
-from citygen.countryside import furrows
+import pytest
+
+from citygen.countryside import furrows, orchard_rows
 from citygen.export import city_to_dict
 from citygen.geometry import Point, Polygon, distance
 from citygen.layers import PALETTES, build_layers
@@ -98,3 +100,70 @@ def test_countryside_has_its_own_layers_under_the_roads():
     names = [layer.name for layer in build_layers(model, PALETTES["Default"])]
     assert names.index("Furrows") < names.index("Road edges")
     assert names.index("Forest") < names.index("Road edges")
+
+
+def test_orchard_trees_stand_in_straight_rows():
+    import random
+    trees = orchard_rows(strip(21, 12), random.Random(1), spacing=3.0)
+    xs = sorted({round(x, 6) for x, _, _ in trees})
+    ys = sorted({round(y, 6) for _, y, _ in trees})
+    assert len(trees) == len(xs) * len(ys)
+    assert all(b - a == pytest.approx(3.0) for a, b in zip(xs, xs[1:]))
+    assert all(b - a == pytest.approx(3.0) for a, b in zip(ys, ys[1:]))
+    for x, y, r in trees:
+        assert 0 < x - r and x + r < 21 and 0 < y - r and y + r < 12
+
+
+def test_orchards_can_be_forced_or_ruled_out():
+    for seed in SEEDS:
+        assert not Model(size=15, seed=seed, orchards=False).orchards
+    assert all(Model(size=15, seed=seed, orchards=True).orchard_trees
+               for seed in SEEDS)
+
+
+def test_orchards_need_no_fields():
+    model = Model(size=15, seed=3, orchards=True, fields=False)
+    assert model.orchards and not model.fields
+
+
+def test_orchards_leave_the_other_fields_alone():
+    def plots(model):
+        return {tuple((round(v.x, 6), round(v.y, 6)) for v in plot)
+                for plot in model.fields}
+
+    for seed in SEEDS:
+        without = plots(Model(size=15, seed=seed, fields=True, orchards=False))
+        with_orchards = plots(Model(size=15, seed=seed, fields=True,
+                                    orchards=True))
+        assert with_orchards <= without
+
+
+def test_orchard_trees_stay_in_their_orchards_and_off_the_roads():
+    from citygen import countryside
+    from citygen.plots import clearance
+
+    for seed in SEEDS:
+        model = Model(size=15, seed=seed, orchards=True)
+        roads = countryside._road_pieces(model)
+        for x, y, r in model.orchard_trees:
+            assert any(clearance(plot, x, y) >= r for plot in model.orchards)
+            assert all(countryside._to_road(x, y, a, b) >= r
+                       for a, b in roads)
+
+
+def test_forests_keep_out_of_orchards():
+    model = Model(size=15, seed=3, orchards=True, forests=True)
+    for x, y, _ in model.trees:
+        assert not any(plot.contains_point(Point(x, y))
+                       for plot in model.orchards)
+
+
+def test_orchards_are_drawn_and_exported():
+    model = Model(size=15, seed=3, orchards=True)
+    layers = {layer.name: layer for layer in build_layers(
+        model, PALETTES["Default"])}
+    assert layers["Orchards"].circles == model.orchard_trees
+    assert len(layers["Orchard edges"].polygons) == len(model.orchards)
+    data = city_to_dict(model)
+    assert len(data["orchards"]) == len(model.orchards)
+    assert len(data["orchard_trees"]) == len(model.orchard_trees)

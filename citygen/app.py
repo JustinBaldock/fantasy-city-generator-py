@@ -497,6 +497,7 @@ class MainWindow(QMainWindow):
         self.river_box = TriState()
         self.fields_box = TriState()
         self.forests_box = TriState()
+        self.orchards_box = TriState()
         self.roads_box = QComboBox()
         self.roads_box.addItem("All gates", True)
         self.roads_box.addItem("Two roads", False)
@@ -519,6 +520,7 @@ class MainWindow(QMainWindow):
                     ("River", self.river_box),
                     ("Fields", self.fields_box),
                     ("Forests", self.forests_box),
+                    ("Orchards", self.orchards_box),
                     ("Roads", self.roads_box),
                     ("Homes", self.homes_box))
         self.feature_boxes = [box for _, box in features]
@@ -652,6 +654,7 @@ class MainWindow(QMainWindow):
                 sea=None if self.sea_box.value() < 0 else self.sea_box.value(),
                 fields=self.fields_box.currentData(),
                 forests=self.forests_box.currentData(),
+                orchards=self.orchards_box.currentData(),
                 home_style=self.homes_box.currentData(),
             )
         except GenerationError as error:

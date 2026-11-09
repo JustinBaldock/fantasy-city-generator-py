@@ -61,6 +61,7 @@ COAST_CHANCE = 0.4
 RIVER_CHANCE = 0.3
 FIELDS_CHANCE = 0.75
 FORESTS_CHANCE = 0.4
+ORCHARDS_CHANCE = 0.5
 
 # A failed attempt shows up as one of these. Anything else is a bug.
 _ATTEMPT_FAILED = (
@@ -103,7 +104,7 @@ class Model:
     def __init__(self, size=DEFAULT_SIZE, seed=-1, walls=None, citadel=None,
                  plaza=None, temple=None, greens=None, coast=None, river=None,
                  hub=True, sea=None, fields=None, forests=None,
-                 home_style="burgage"):
+                 home_style="burgage", orchards=None):
         if home_style not in HOME_STYLES:
             raise ValueError(f"Unknown home style {home_style!r}")
         if seed > 0:
@@ -130,6 +131,11 @@ class Model:
         self.sea_bearing = bearing_roll if sea is None else sea
         self.fields_needed = fields_roll if fields is None else fields
         self.forests_needed = forests_roll if forests is None else forests
+        # Its own random numbers, so the rest of the countryside is the same
+        # whether or not there are orchards.
+        orchards_roll = (random.Random(f"{seed} orchards option").random()
+                         < ORCHARDS_CHANCE)
+        self.orchards_needed = orchards_roll if orchards is None else orchards
         self.sea_direction = water.direction_from_bearing(self.sea_bearing)
 
         # Drawn even when forced, so that forcing one leaves the rest alike.
@@ -170,6 +176,8 @@ class Model:
         self.piers = []
         self.fields = []
         self.furrows = []
+        self.orchards = []
+        self.orchard_trees = []
         self.trees = []
 
         self._build_patches()

@@ -53,6 +53,13 @@ def test_homes_can_be_switched_to_gnome_homes_and_back(window):
     assert gnome_homes() == 0
 
 
+def test_orchards_can_be_turned_on(window):
+    window.orchards_box.setCurrentIndex(1)
+    assert window.model.orchards_needed
+    window.orchards_box.setCurrentIndex(2)
+    assert not window.model.orchards
+
+
 def test_classic_homes_have_no_plots(window):
     window.homes_box.setCurrentIndex(2)
     assert window.homes_box.currentText() == "Classic"
