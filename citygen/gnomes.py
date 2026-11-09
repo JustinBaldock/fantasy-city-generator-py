@@ -100,13 +100,31 @@ def outline(x, y, radius, turn, room, sides):
 
 
 def _rooms_that_fit(plot, x, y, radius, turn, room):
-    """Which sides of a hexagon have space for a room inside the plot."""
+    """Which sides of a hexagon have space for a room inside the plot.
+
+    This works out a room's two outer corners, the ones furthest out, by the
+    same sums as outline, without building a whole home for each side.
+    """
+    corners = []
+    for i in range(SIDES):
+        angle = turn + i * 2 * math.pi / SIDES
+        corners.append((x + radius * math.cos(angle),
+                        y + radius * math.sin(angle)))
+    start = (radius - room) / 2
     sides = []
-    for side in range(SIDES):
-        shape = outline(x, y, radius, turn, room, {side})
-        # The room's two outer corners are the ones furthest out.
-        far_corners = shape[side + 2:side + 4]
-        if all(clearance(plot, *p) >= MARGIN for p in far_corners):
+    for side, (ax, ay) in enumerate(corners):
+        bx, by = corners[(side + 1) % SIDES]
+        along_x = (bx - ax) / radius
+        along_y = (by - ay) / radius
+        out_x, out_y = along_y, -along_x
+        near_x = ax + along_x * start
+        near_y = ay + along_y * start
+        far_x = near_x + along_x * room
+        far_y = near_y + along_y * room
+        if (clearance(plot, near_x + out_x * room, near_y + out_y * room)
+                >= MARGIN
+                and clearance(plot, far_x + out_x * room,
+                              far_y + out_y * room) >= MARGIN):
             sides.append(side)
     return sides
 

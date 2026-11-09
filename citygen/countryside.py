@@ -113,17 +113,29 @@ class _Ground:
 
     def __init__(self):
         self.taken = set()
+        self._discs = {}
 
     def _cell(self, x, y):
         return int(x // CELL), int(y // CELL)
 
+    def _disc(self, reach):
+        """The squares within reach of a square, as steps from it.
+
+        Only a few reaches are ever used, so each is worked out once.
+        """
+        disc = self._discs.get(reach)
+        if disc is None:
+            cells = int(reach // CELL) + 1
+            disc = [(i, j)
+                    for i in range(-cells, cells + 1)
+                    for j in range(-cells, cells + 1)
+                    if math.hypot(i * CELL, j * CELL) <= reach + CELL]
+            self._discs[reach] = disc
+        return disc
+
     def mark(self, x, y, reach):
-        cells = int(reach // CELL) + 1
         cx, cy = self._cell(x, y)
-        for i in range(cx - cells, cx + cells + 1):
-            for j in range(cy - cells, cy + cells + 1):
-                if math.hypot((i - cx) * CELL, (j - cy) * CELL) <= reach + CELL:
-                    self.taken.add((i, j))
+        self.taken.update((cx + i, cy + j) for i, j in self._disc(reach))
 
     def mark_line(self, a, b, reach):
         steps = max(1, int(distance(a, b) / CELL))

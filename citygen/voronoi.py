@@ -1,5 +1,6 @@
 """Voronoi regions by adding points to a triangulation, from geom/Voronoi.hx."""
 
+import math
 from functools import cmp_to_key
 
 from .geometry import GenerationError, Point, distance, index_of, sign
@@ -8,7 +9,7 @@ from .geometry import GenerationError, Point, distance, index_of, sign
 class Triangle:
     """A triangle with its vertices in order, and its circumcircle."""
 
-    __slots__ = ("p1", "p2", "p3", "c", "r")
+    __slots__ = ("p1", "p2", "p3", "c", "r", "cx", "cy", "split")
 
     def __init__(self, p1, p2, p3):
         s = ((p2.x - p1.x) * (p2.y + p1.y)
@@ -33,6 +34,10 @@ class Triangle:
             (s1 * (p3.x - p2.x) + s2 * (p1.x - p3.x) + s3 * (p2.x - p1.x)) / d,
         )
         self.r = distance(self.c, p1)
+        # Kept as plain numbers too, for the search in add_point.
+        self.cx = self.c.x
+        self.cy = self.c.y
+        self.split = False  # Set once add_point replaces it.
 
     def has_edge(self, a, b):
         return ((self.p1 is a and self.p2 is b)
@@ -83,7 +88,12 @@ class Voronoi:
         self.triangles = [Triangle(c1, c2, c3), Triangle(c2, c3, c4)]
 
     def add_point(self, p):
-        to_split = [tr for tr in self.triangles if distance(p, tr.c) < tr.r]
+        # The same sum as distance(p, tr.c), without a call for each one.
+        hypot = math.hypot
+        px = p.x
+        py = p.y
+        to_split = [tr for tr in self.triangles
+                    if hypot(px - tr.cx, py - tr.cy) < tr.r]
         if not to_split:
             return
 
@@ -127,8 +137,9 @@ class Voronoi:
         else:
             raise GenerationError("Triangulation outline didn't close")
 
-        gone = set(map(id, to_split))
-        self.triangles = [tr for tr in self.triangles if id(tr) not in gone]
+        for tr in to_split:
+            tr.split = True
+        self.triangles = [tr for tr in self.triangles if not tr.split]
 
     def _is_real(self, tr):
         frame = self.frame

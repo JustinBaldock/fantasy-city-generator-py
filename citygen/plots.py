@@ -67,13 +67,37 @@ class Plot(Polygon):
 
 
 def clearance(plot, x, y):
-    """How far a point is from the plot's nearest edge, 0 if it's outside."""
-    if not plot.contains_point(Point(x, y)):
-        return 0.0
+    """How far a point is from the plot's nearest edge, 0 if it's outside.
+
+    This is the plot's contains_point and _to_segment for each edge, in one
+    pass over plain numbers, since it runs hundreds of thousands of times.
+    The sums are the same, so the answers are too.
+    """
+    inside = False
     nearest = math.inf
-    for a, b in plot.edges():
-        nearest = min(nearest, _to_segment(x, y, a, b))
-    return nearest
+    hypot = math.hypot
+    last = plot[-1]
+    for v in plot:
+        ax = last.x
+        ay = last.y
+        bx = v.x
+        by = v.y
+        if (ay > y) != (by > y):
+            if x < (bx - ax) * (y - ay) / (by - ay) + ax:
+                inside = not inside
+        dx = bx - ax
+        dy = by - ay
+        length = dx * dx + dy * dy
+        along = ((x - ax) * dx + (y - ay) * dy) / length if length else 0.0
+        if along < 0.0:
+            along = 0.0
+        elif along > 1.0:
+            along = 1.0
+        gap = hypot(x - ax - along * dx, y - ay - along * dy)
+        if gap < nearest:
+            nearest = gap
+        last = v
+    return nearest if inside else 0.0
 
 
 def _to_segment(x, y, a, b):
