@@ -29,6 +29,12 @@ python3 -m venv .venv
 - Scroll to zoom, drag to pan, and double-click to reset the view.
 - Hover over a ward to see what kind it is.
 
+## Roads and streets
+
+Each road carries on through its gate as the main street to the centre of town. The other gaps between wards in town have streets, drawn as single lines. A street also runs just inside the city wall wherever there's room between the wall and the buildings, such as inside a bulge made by pushing the wall out.
+
+Roads and streets react to the buildings. Move a building onto one and it bends smoothly round it, cutting across gardens if it needs to, and it straightens again when the building moves off or the move is undone. Where houses stand close on both sides, as they do along most streets in town, there's no room to bend, and the moved building stands over the way instead. Buildings that haven't been moved never bend a way.
+
 ## Orchards
 
 Wheat fields are the furrowed farm plots around town, each two to three times the size of an orchard.
@@ -72,7 +78,7 @@ Exports show the moved buildings. Moves aren't saved anywhere else, so export a 
 
 - **PNG** at any size from 500 to 16,000 pixels square.
 - **SVG** with each kind of feature in its own named group, ready to edit in a vector program.
-- **JSON** with the wards, buildings, plots, walls, gates, towers, streets and roads as coordinates. This is this app's own format, not the JSON format of Watabou's site.
+- **JSON** with the wards, buildings, plots, walls, gates, towers, streets and roads as coordinates, including the roads and streets as drawn. This is this app's own format, not the JSON format of Watabou's site.
 
 ## How it differs from the website
 
