@@ -21,7 +21,7 @@ python3 -m venv .venv
 - Press Return, or New map, for a new map at the same size.
 - Press a size button for a new map of that kind of settlement, or set the number of wards directly, from 6 to 40.
 - To get a map back, type its seed and press Return.
-- Walls, Castle, Plaza, Temple, Greens, Coast, River, Fields, Forests and Orchards can each be Random, Yes or No. Changing one rebuilds the same seed.
+- Walls, Castle, Plaza, Temple, Greens, Coast, River, Wheat fields, Forests and Orchards can each be Random, Yes or No. Changing one rebuilds the same seed.
 - Sea to sets the compass bearing of the coast, with 0 for north and 90 for east.
 - Roads sets whether every gate has a road, or only two roads lead out of town.
 - Homes switches between burgage plots, gnome homes and classic houses. See below. Changing it keeps the same streets, walls and water.
@@ -31,7 +31,9 @@ python3 -m venv .venv
 
 ## Orchards
 
-Orchards are farm plots with their trees in neat rows, each with a faint hedge round it. They take some of the plots beside farmhouses, and the higher farmland near town that is too steep for fields. Turning orchards on or off leaves the other fields where they were, and forests keep out of them.
+Wheat fields are the furrowed farm plots around town, each two to three times the size of an orchard.
+
+Orchards are farm plots with their trees in neat rows, each with a faint hedge round it. Where an orchard takes the place of a wheat field, the field's land makes two or three orchards. They take some of the plots beside farmhouses, and the higher farmland near town that is too steep for fields. Turning orchards on or off leaves the other fields where they were, and forests keep out of them.
 
 ## Plots and burgage plots
 
