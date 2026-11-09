@@ -183,12 +183,14 @@ def build_layers(model, palette):
     temples = []
     room_walls = []
     gardens = []
+    garden_trees = []
     for patch in model.patches:
         ward = patch.ward
         built = []
         for polygon in ward.geometry:
             if isinstance(polygon, Plot):
                 gardens.append(_xy(polygon))
+                garden_trees += polygon.trees
                 polygon = polygon.house
             if isinstance(polygon, GnomeHome):
                 room_walls += _pairs(polygon.room_walls())
@@ -207,6 +209,8 @@ def build_layers(model, palette):
     layers.append(Layer("Greens", fill=palette.green, polygons=parks))
     layers.append(Layer("Plots", fill=palette.garden, stroke=palette.medium,
                         width=PLOT_BORDER, polygons=gardens))
+    layers.append(Layer("Garden trees", fill=palette.forest,
+                        circles=garden_trees))
     layers.append(Layer("Buildings", fill=palette.light, stroke=palette.dark,
                         width=NORMAL_STROKE, polygons=buildings))
     layers.append(Layer("Room walls", stroke=palette.dark, width=NORMAL_STROKE,

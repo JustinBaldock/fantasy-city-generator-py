@@ -199,10 +199,9 @@ class Building:
         self._measure(corners)
 
     def _carry_house(self, dx, dy):
-        """Move the house on a plot with it. Plots only ever slide."""
-        house = getattr(self.polygon, "house", None)
-        if house is not None:
-            house[:] = [Point(v.x + dx, v.y + dy) for v in house]
+        """Move what stands on a plot with it. Plots only ever slide."""
+        if hasattr(self.polygon, "house"):
+            self.polygon.shift(dx, dy)
 
     def _measure(self, corners):
         self.hull = convex_hull(corners)

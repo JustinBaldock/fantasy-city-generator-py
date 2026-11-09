@@ -457,6 +457,7 @@ class Model:
             gnomes.build_gnome_homes(self)
         elif self.home_style == "burgage":
             plots.build_burgage_plots(self)
+        plots.plant_gardens(self)
         if self.shore:
             water.build_piers(self)
         countryside.build_countryside(self)

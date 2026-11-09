@@ -254,3 +254,67 @@ def test_classic_plots_are_smaller_than_burgage_plots():
 def test_an_unknown_home_style_is_refused():
     with pytest.raises(ValueError):
         Model(size=9, seed=3, home_style="elvish")
+
+
+def trees_of(model):
+    return [(plot, tree) for _, plot in plots_in(model) for tree in plot.trees]
+
+
+@pytest.mark.parametrize("style", ["burgage", "gnome"])
+def test_bigger_gardens_have_trees_clear_of_the_house(style):
+    model = Model(home_style=style, size=15, seed=7)
+    planted = trees_of(model)
+    assert planted
+    for plot, (x, y, radius) in planted:
+        assert plots.clearance(plot, x, y) >= radius
+        assert not plot.house.contains_point(Point(x, y))
+        assert plots._to_outline(plot.house, x, y) >= radius
+        garden = abs(plot.square) - abs(plot.house.square)
+        assert garden >= plots.MIN_GARDEN
+
+
+def test_small_gardens_have_no_trees():
+    model = Model(size=15, seed=7)
+    for _, plot in plots_in(model):
+        if abs(plot.square) - abs(plot.house.square) < plots.MIN_GARDEN:
+            assert not plot.trees
+
+
+def test_classic_maps_have_no_garden_trees():
+    model = Model(home_style="classic", size=15, seed=7)
+    layer = next(x for x in build_layers(model, PALETTE)
+                 if x.name == "Garden trees")
+    assert layer.circles == []
+
+
+def test_garden_trees_are_drawn_and_exported():
+    model = Model(size=15, seed=7)
+    planted = [tree for _, tree in trees_of(model)]
+    layer = next(x for x in build_layers(model, PALETTE)
+                 if x.name == "Garden trees")
+    assert layer.circles == planted
+    exported = [tree for ward in export.city_to_dict(model)["wards"]
+                for tree in ward["garden_trees"]]
+    assert len(exported) == len(planted)
+    assert 'id="garden-trees"' in export.city_to_svg(model, PALETTE)
+
+
+def test_trees_move_with_their_plot_and_come_back_on_undo():
+    editor = CityEditor(Model(size=15, seed=7))
+    building = next(b for b in sorted(editor.buildings,
+                                      key=lambda b: b.cx * b.cx + b.cy * b.cy)
+                    if isinstance(b.polygon, Plot) and b.polygon.trees)
+    before = list(building.polygon.trees)
+    x, y = building.center()
+
+    assert editor.begin_move(building)
+    editor.drag_to(building, 2.0, 1.0)
+    editor.end_move()
+
+    dx, dy = building.cx - x, building.cy - y
+    assert (dx, dy) != (0, 0)
+    assert flat(building.polygon.trees) == pytest.approx(
+        flat((tx + dx, ty + dy, r) for tx, ty, r in before))
+
+    assert editor.undo()
+    assert flat(building.polygon.trees) == pytest.approx(flat(before))

@@ -7,7 +7,7 @@ from .layers import build_layers, map_extent
 from .plots import Plot
 from .model import size_name
 
-JSON_FORMAT_VERSION = 6
+JSON_FORMAT_VERSION = 7
 
 
 def _xy(polygon):
@@ -43,6 +43,9 @@ def city_to_dict(model):
             "buildings": [_xy(_building(b)) for b in patch.ward.geometry],
             "plots": [_xy(b) if isinstance(b, Plot) else None
                       for b in patch.ward.geometry],
+            "garden_trees": [[round(x, 2), round(y, 2), round(r, 2)]
+                             for b in patch.ward.geometry
+                             if isinstance(b, Plot) for x, y, r in b.trees],
             "landmarks": [_xy(b) for b in patch.ward.landmarks],
         })
 

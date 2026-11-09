@@ -38,6 +38,15 @@ FIT_TRIES = 8
 ON_EDGE = 0.05  # How close a corner must be to the block's edge to be on it.
 LANE_PROBE = 0.3  # How far out from an edge to look for a lane.
 
+GARDEN_TREE_RADIUS = (0.8, 1.4)
+MIN_GARDEN = 30  # The least open ground, in square units, that has trees.
+GARDEN_PER_TREE = 22  # Square units of open ground for each tree.
+MAX_GARDEN_TREES = 6
+GARDEN_CHANCE = 0.8  # Of a big enough garden having any trees.
+TREE_TRIES = 40  # Spots to try for each tree.
+TREE_GAP = 0.3  # Between a tree and its house or its plot's border.
+TREE_OVERLAP = 0.9  # Trees closer than this share of their radii overlap.
+
 
 class Plot(Polygon):
     """A property's border, with the building that stands on it.
@@ -49,6 +58,12 @@ class Plot(Polygon):
     def __init__(self, points, house):
         super().__init__(points)
         self.house = house
+        self.trees = []  # (x, y, radius) for each tree in the garden.
+
+    def shift(self, dx, dy):
+        """Move the house and trees, which go wherever the plot goes."""
+        self.house[:] = [Point(v.x + dx, v.y + dy) for v in self.house]
+        self.trees = [(x + dx, y + dy, r) for x, y, r in self.trees]
 
 
 def clearance(plot, x, y):
@@ -205,6 +220,46 @@ def burgage(plot, block, neighbours, chooser):
 
     # Too tight for a house and garden, so a cottage fills it.
     return plot_with_rectangle(plot, chooser)
+
+
+def _to_outline(polygon, x, y):
+    return min(_to_segment(x, y, a, b) for a, b in polygon.edges())
+
+
+def _plant(plot, chooser):
+    """A few trees in the open ground of a big enough plot."""
+    garden = abs(plot.square) - abs(plot.house.square)
+    if garden < MIN_GARDEN or chooser.random() > GARDEN_CHANCE:
+        return
+    wanted = min(MAX_GARDEN_TREES,
+                 max(1, round(garden / GARDEN_PER_TREE * chooser.random() * 2)))
+    left = min(v.x for v in plot)
+    right = max(v.x for v in plot)
+    top = min(v.y for v in plot)
+    bottom = max(v.y for v in plot)
+
+    for _ in range(wanted):
+        radius = chooser.uniform(*GARDEN_TREE_RADIUS)
+        for _ in range(TREE_TRIES):
+            x = chooser.uniform(left, right)
+            y = chooser.uniform(top, bottom)
+            if (clearance(plot, x, y) >= radius + TREE_GAP
+                    and not plot.house.contains_point(Point(x, y))
+                    and _to_outline(plot.house, x, y) >= radius + TREE_GAP
+                    and all(math.hypot(x - tx, y - ty)
+                            >= (radius + tr) * TREE_OVERLAP
+                            for tx, ty, tr in plot.trees)):
+                plot.trees.append((x, y, radius))
+                break
+
+
+def plant_gardens(model):
+    """Put trees in the gardens of the bigger plots."""
+    chooser = random.Random(f"{model.seed} garden trees")
+    for patch in model.patches:
+        for plot in patch.ward.geometry:
+            if isinstance(plot, Plot):
+                _plant(plot, chooser)
 
 
 def build_burgage_plots(model):
