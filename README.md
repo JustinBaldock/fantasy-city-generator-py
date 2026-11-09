@@ -24,14 +24,20 @@ python3 -m venv .venv
 - Walls, Castle, Plaza, Temple, Greens, Coast, River, Fields and Forests can each be Random, Yes or No. Changing one rebuilds the same seed.
 - Sea to sets the compass bearing of the coast, with 0 for north and 90 for east.
 - Roads sets whether every gate has a road, or only two roads lead out of town.
-- Homes switches between ordinary houses and gnome homes. See below. Changing it keeps the same streets, walls and water.
+- Homes switches between burgage plots and gnome homes. See below. Changing it keeps the same streets, walls and water.
 - Style changes the colours without changing the map.
 - Scroll to zoom, drag to pan, and double-click to reset the view.
 - Hover over a ward to see what kind it is.
 
+## Plots and burgage plots
+
+Every house stands on its own plot of land, drawn as a property with a border round it.
+
+Homes are burgage plots unless you choose gnome homes. A burgage plot is the medieval town plot, with the house at the front on the street, or on a lane if the plot doesn't reach a street, and a long garden behind for growing food and keeping animals. A plot too cramped for a garden has a cottage that nearly fills it. Administration and Military buildings stand in the middle of their plots, and castles, temples, markets and farms have no plot border.
+
 ## Gnome homes
 
-Set Homes to Gnome for a town of gnomes. A gnome home is a hexagon with square rooms built onto some of its straight sides, and a line on the map shows where each room joins the hexagon.
+Set Homes to Gnome for a town of gnomes. A gnome home is a hexagon with square rooms built onto some of its straight sides, and a line on the map shows where each room joins the hexagon. Each home has its own plot, and a plot too long for one home is split in two with a lane between.
 
 Not everything is a home. Shops, workshops, warehouses and stores are plain squares and rectangles, mixed in among the homes. About half the plots in a Merchant ward are, and fewer in the others. Administration and Military wards are all rectangles, and each farm gets a home with a barn beside it when the land has space. Castles, temples and markets stay as they are.
 
@@ -43,6 +49,7 @@ Turn on Edit buildings, or press `E`, to change a map by hand.
 
 - Click a building to select it, and drag it to move it. Dragging open ground still pans.
 - Buildings in the way get pushed aside, and can push others in turn.
+- A building moves with its whole plot, and clicking anywhere on the plot selects it.
 - To lock a building, right-click it, or select it and press `L` or Lock building. Locked buildings show in red. They can't be moved or pushed, so they stop anything that runs into them. Locking again unlocks.
 - City walls give way. A building that reaches a wall bends that stretch into a smooth curve, with its towers and gates. The further it goes the wider the wall swells, so a long drag makes a rounded bulge, and the land it takes in stays empty. Roads are carried along outside the wall and stay joined to their gates, and buildings beyond the wall are moved out of its way.
 - The sea and rivers stop buildings, and a dragged building slides along them. Walls that run along water stay put and a bulge won't enter water. A locked building holds a wall back, so the curve tapers off beside it, and a castle wall can't be pushed through the city wall.
@@ -54,13 +61,13 @@ Exports show the moved buildings. Moves aren't saved anywhere else, so export a 
 
 - **PNG** at any size from 500 to 16,000 pixels square.
 - **SVG** with each kind of feature in its own named group, ready to edit in a vector program.
-- **JSON** with the wards, buildings, walls, gates, towers, streets and roads as coordinates. This is this app's own format, not the JSON format of Watabou's site.
+- **JSON** with the wards, buildings, plots, walls, gates, towers, streets and roads as coordinates. This is this app's own format, not the JSON format of Watabou's site.
 
 ## How it differs from the website
 
 This port is based on the source code Watabou published, which stopped being updated years ago. The website has moved on since then.
 
-Coasts, rivers, bridges, piers, farm fields, forests, rounded greens, temple landmarks, gnome homes, the Roads option and curved road drawing aren't in the published source. They are this project's own work, modelled on what the website's maps show, and no code was taken from the website. They won't match it exactly. Water follows the edges between wards, for example, so a river can't cut through the middle of one.
+Coasts, rivers, bridges, piers, farm fields, forests, rounded greens, temple landmarks, plots, burgage plots, gnome homes, the Roads option and curved road drawing aren't in the published source. They are this project's own work, modelled on what the website's maps show, and no code was taken from the website. They won't match it exactly. Water follows the edges between wards, for example, so a river can't cut through the middle of one.
 
 The website's building shadows, district names, grid, compass and scale bar aren't in this app.
 
