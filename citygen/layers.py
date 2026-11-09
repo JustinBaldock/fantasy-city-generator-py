@@ -6,6 +6,7 @@ this module needs Qt.
 
 from dataclasses import dataclass, field
 
+from . import streets
 from .geometry import chaikin
 from .gnomes import GnomeHome
 from .plots import Plot
@@ -31,6 +32,7 @@ THICK_STROKE = 1.8
 PIER_WIDTH = 1.0
 PLOT_BORDER = 0.15
 FURROW_WIDTH = 0.14
+STREET_LINE = 0.3
 LINE_ROUNDING = 2
 
 _BUILDING_WARDS = (
@@ -113,7 +115,7 @@ def _xy(polygon):
 
 
 def _rounded(line):
-    return chaikin(_xy(line), LINE_ROUNDING)
+    return chaikin(line, LINE_ROUNDING)
 
 
 def _pairs(pairs):
@@ -163,7 +165,8 @@ def _wall_features(wall, large, palette, prefix):
 
 def build_layers(model, palette):
     """Everything on the map, in drawing order."""
-    roads = [_rounded(road) for road in model.roads]
+    road_lines, street_lines, wall_streets = streets.ways(model)
+    roads = [_rounded(road) for road in road_lines]
     layers = [
         Layer("Furrows", stroke=palette.furrow, width=FURROW_WIDTH, cap="flat",
               polylines=_pairs(model.furrows)),
@@ -171,10 +174,6 @@ def build_layers(model, palette):
         Layer("Orchard edges", stroke=palette.furrow, width=FURROW_WIDTH * 2,
               polygons=[_xy(plot) for plot in model.orchards]),
         Layer("Orchards", fill=palette.forest, circles=model.orchard_trees),
-        Layer("Road edges", stroke=palette.medium,
-              width=MAIN_STREET + NORMAL_STROKE, cap="flat", polylines=roads),
-        Layer("Roads", stroke=palette.paper,
-              width=MAIN_STREET - NORMAL_STROKE, cap="flat", polylines=roads),
     ]
     if model.sea is not None:
         layers.append(Layer("Sea", fill=palette.water,
@@ -214,6 +213,16 @@ def build_layers(model, palette):
                         width=PLOT_BORDER, polygons=gardens))
     layers.append(Layer("Garden trees", fill=palette.forest,
                         circles=garden_trees))
+    # Over the gardens, since a way can cut across one to pass a house.
+    layers += [
+        Layer("Road edges", stroke=palette.medium,
+              width=MAIN_STREET + NORMAL_STROKE, cap="flat", polylines=roads),
+        Layer("Roads", stroke=palette.paper,
+              width=MAIN_STREET - NORMAL_STROKE, cap="flat", polylines=roads),
+        Layer("Streets", stroke=palette.medium, width=STREET_LINE,
+              join="round", polylines=street_lines + [
+                  _rounded(line) for line in wall_streets]),
+    ]
     layers.append(Layer("Buildings", fill=palette.light, stroke=palette.dark,
                         width=NORMAL_STROKE, polygons=buildings))
     layers.append(Layer("Room walls", stroke=palette.dark, width=NORMAL_STROKE,
@@ -238,7 +247,7 @@ def build_layers(model, palette):
     if model.river:
         layers.append(Layer("River", stroke=palette.water, width=RIVER_WIDTH,
                             cap="flat", join="round",
-                            polylines=[_rounded(model.river)]))
+                            polylines=[_rounded(_xy(model.river))]))
     for name, pairs, width in (("Bridge", model.bridges, BRIDGE_WIDTH),
                                ("Pier", model.piers, PIER_WIDTH)):
         layers.append(Layer(f"{name} edges", stroke=palette.medium,

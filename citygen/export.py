@@ -5,9 +5,10 @@ from xml.sax.saxutils import escape
 
 from .layers import build_layers, map_extent
 from .plots import Plot
+from .streets import ways
 from .model import size_name
 
-JSON_FORMAT_VERSION = 8
+JSON_FORMAT_VERSION = 9
 
 
 def _xy(polygon):
@@ -32,6 +33,12 @@ def city_to_dict(model):
     plots lines up with buildings, giving the border of each building's plot,
     or None for a building that has no plot of its own.
     """
+    road_lines, street_lines, wall_streets = ways(model)
+
+    def lines(found):
+        return [[[round(x, 3), round(y, 3)] for x, y in line]
+                for line in found]
+
     wards = []
     for patch in model.patches:
         wards.append({
@@ -74,6 +81,10 @@ def city_to_dict(model):
         "castle_wall": (_wall(model.citadel.ward.wall)
                         if model.citadel is not None else None),
         "streets": [_xy(street) for street in model.streets],
+        # The ways as drawn, bent round any moved buildings.
+        "drawn_roads": lines(road_lines),
+        "drawn_streets": lines(street_lines),
+        "wall_streets": lines(wall_streets),
         "roads": [_xy(road) for road in model.roads],
         "wards": wards,
     }

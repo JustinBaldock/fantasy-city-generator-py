@@ -127,6 +127,26 @@ def distance(a, b):
     return math.hypot(a.x - b.x, a.y - b.y)
 
 
+def convex_hull(points):
+    """The convex outline of a list of (x, y) pairs."""
+    points = sorted(set(points))
+    if len(points) < 3:
+        return points
+
+    def half(ordered):
+        hull = []
+        for p in ordered:
+            while len(hull) >= 2:
+                (ax, ay), (bx, by) = hull[-2], hull[-1]
+                if (bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax) > 0:
+                    break
+                hull.pop()
+            hull.append(p)
+        return hull[:-1]
+
+    return half(points) + half(points[::-1])
+
+
 def interpolate(p1, p2, ratio=0.5):
     return Point(p1.x + (p2.x - p1.x) * ratio, p1.y + (p2.y - p1.y) * ratio)
 

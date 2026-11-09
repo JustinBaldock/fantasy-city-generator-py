@@ -21,7 +21,7 @@ themselves stay in their wards, so drawing and exports see the moves.
 
 import math
 
-from .geometry import Point, index_of
+from .geometry import Point, convex_hull, index_of
 from .layers import THICK_STROKE
 from .water import RIVER_WIDTH
 
@@ -48,26 +48,6 @@ MIN_SHARE = 0.25  # Limits the swing of a wall that is held near the push.
 MAX_SLIDES = 200  # The most steps one pointer move can take along an obstacle.
 MAX_PUSHES_PER_MOVE = 2000  # The shoving allowed for one move of the pointer.
 RETRY_DISTANCE = 1.0  # How far the pointer must go before a stuck drag retries.
-
-
-def convex_hull(points):
-    """The convex outline of a list of (x, y) pairs."""
-    points = sorted(set(points))
-    if len(points) < 3:
-        return points
-
-    def half(ordered):
-        hull = []
-        for p in ordered:
-            while len(hull) >= 2:
-                (ax, ay), (bx, by) = hull[-2], hull[-1]
-                if (bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax) > 0:
-                    break
-                hull.pop()
-            hull.append(p)
-        return hull[:-1]
-
-    return half(points) + half(points[::-1])
 
 
 def _project(hull, ax, ay):

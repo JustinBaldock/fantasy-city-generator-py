@@ -70,6 +70,10 @@ _ATTEMPT_FAILED = (
 )
 
 
+def spot_of(polygon):
+    return tuple((v.x, v.y) for v in polygon)
+
+
 def size_name(size):
     if size < 10:
         return "Small Town"
@@ -466,9 +470,21 @@ class Model:
         elif self.home_style == "burgage":
             plots.build_burgage_plots(self)
         plots.plant_gardens(self)
+        self.built_at = {}
         if self.shore:
             water.build_piers(self)
         countryside.build_countryside(self)
+        # Where each building stood when the city was built, so the drawing
+        # can tell which ones have been moved since.
+        self.built_at = {
+            id(polygon): spot_of(polygon)
+            for patch in self.patches
+            for polygon in list(patch.ward.geometry) + list(patch.ward.landmarks)
+        }
+
+    def has_moved(self, polygon):
+        """Whether a building has moved since the city was built."""
+        return self.built_at.get(id(polygon)) != spot_of(polygon)
 
     def get_neighbour(self, patch, v):
         following = patch.shape.next(v)
