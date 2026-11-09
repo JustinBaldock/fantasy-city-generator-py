@@ -33,13 +33,13 @@ python3 -m venv .venv
 
 Every house stands on its own plot of land, drawn as a property with a border round it.
 
-Homes are burgage plots unless you choose gnome homes or classic houses. A burgage plot is the medieval town plot, with the house at the front on the street, or on a lane if the plot doesn't reach a street, and a long garden behind for growing food and keeping animals. A plot too cramped for a garden has a cottage that nearly fills it. Administration and Military buildings stand in the middle of their plots, and castles, temples, markets and farms have no plot border.
+Homes are burgage plots unless you choose gnome homes or classic houses. A burgage plot is the medieval town plot, with the house at the front on the street, or on a lane if the plot doesn't reach a street, and a long garden behind for growing food and keeping animals. A plot too cramped for a garden has a cottage that nearly fills it. Bigger gardens have a few trees in them. Administration and Military buildings stand in the middle of their plots, and castles, temples, markets and farms have no plot border.
 
 Classic houses fill their plots edge to edge with no gardens or borders, as on the original generator. A classic map is the same as this port gave before plots were added.
 
 ## Gnome homes
 
-Set Homes to Gnome for a town of gnomes. A gnome home is a hexagon with square rooms built onto some of its straight sides, and a line on the map shows where each room joins the hexagon. Each home has its own plot, and a plot too long for one home is split in two with a lane between.
+Set Homes to Gnome for a town of gnomes. A gnome home is a hexagon with square rooms built onto some of its straight sides, and a line on the map shows where each room joins the hexagon. Each home has its own plot, and a plot too long for one home is split in two with a lane between. Bigger plots have a few trees in their gardens.
 
 Not everything is a home. Shops, workshops, warehouses and stores are plain squares and rectangles, mixed in among the homes. About half the plots in a Merchant ward are, and fewer in the others. Administration and Military wards are all rectangles, and each farm gets a home with a barn beside it when the land has space. Castles, temples and markets stay as they are.
 
