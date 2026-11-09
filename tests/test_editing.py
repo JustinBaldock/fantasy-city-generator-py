@@ -266,7 +266,8 @@ def test_exports_show_the_moved_buildings():
     rounded = [round(x, 3), round(y, 3)]
     wards = export.city_to_dict(model)["wards"]
     assert any(rounded in shape for ward in wards
-               for shape in ward["buildings"] + ward["landmarks"])
+               for shape in ward["buildings"] + ward["landmarks"]
+               + [plot for plot in ward["plots"] if plot])
     assert f"{x:.3f} {y:.3f}" in export.city_to_svg(
         model, PALETTES["Default"])
 
@@ -431,7 +432,9 @@ def test_a_dragged_building_can_cross_a_packed_walled_city():
     assert building.center() == pytest.approx((x * 0.3, y * 0.3), abs=0.05)
 
 
-def test_a_jump_past_the_limit_catches_up_on_the_next_move():
+def test_a_jump_past_the_limit_catches_up_on_the_next_move(monkeypatch):
+    # Low enough that this jump always runs out of pushes part way.
+    monkeypatch.setattr(editing, "MAX_PUSHES_PER_MOVE", 150)
     model = walled_city()
     editor = CityEditor(model)
     building = outer_building(model, editor)

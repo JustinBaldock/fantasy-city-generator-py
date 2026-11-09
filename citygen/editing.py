@@ -193,8 +193,16 @@ class Building:
 
     def place(self, corners):
         """Give the building new points, leaving its neighbours' alone."""
+        first = self.polygon[0]
+        self._carry_house(corners[0][0] - first.x, corners[0][1] - first.y)
         self.polygon[:] = [Point(x, y) for x, y in corners]
         self._measure(corners)
+
+    def _carry_house(self, dx, dy):
+        """Move the house on a plot with it. Plots only ever slide."""
+        house = getattr(self.polygon, "house", None)
+        if house is not None:
+            house[:] = [Point(v.x + dx, v.y + dy) for v in house]
 
     def _measure(self, corners):
         self.hull = convex_hull(corners)
@@ -205,6 +213,7 @@ class Building:
 
     def shift(self, dx, dy):
         """Slide the building, which keeps its shape, so nothing is remeasured."""
+        self._carry_house(dx, dy)
         self.polygon[:] = [Point(v.x + dx, v.y + dy) for v in self.polygon]
         self.hull = [(x + dx, y + dy) for x, y in self.hull]
         self.cx += dx

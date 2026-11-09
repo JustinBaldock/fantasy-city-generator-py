@@ -20,9 +20,11 @@ MAIN_STREET = 2.0
 REGULAR_STREET = 1.0
 ALLEY = 0.6
 
-# Added to a ward's plot size for gnome homes, which need more space than a
-# house to show their shape.
+# Added to a ward's plot size where people live, since a house now stands in
+# its plot with open ground round it. Gnome homes need the space to show their
+# shape, and burgage plots for their gardens.
 GNOME_PLOT = 30
+BURGAGE_PLOT = 40
 
 
 def _longest_edge_start(poly):
@@ -121,7 +123,9 @@ class Ward:
 
     @property
     def plot_bonus(self):
-        return GNOME_PLOT if self.homes and self.model.gnome_homes else 0
+        if not self.homes:
+            return 0
+        return GNOME_PLOT if self.model.gnome_homes else BURGAGE_PLOT
 
     def get_city_block(self):
         model = self.model

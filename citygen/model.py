@@ -10,7 +10,7 @@ gives the same city.
 import math
 import random
 
-from . import countryside, gnomes, rng, water
+from . import countryside, gnomes, plots, rng, water
 from .geometry import (
     GenerationError,
     Point,
@@ -90,8 +90,9 @@ class Model:
     hub False keeps only two roads out of town. sea is the compass bearing of
     the coast in degrees, or None to leave it to the seed.
 
-    gnome_homes True swaps the houses for gnome homes. It is never left to the
-    seed, so the same seed gives the same ordinary city unless it's asked for.
+    gnome_homes True builds gnome homes. Otherwise homes are burgage plots,
+    with the house at the street front and a garden behind. It is never left
+    to the seed.
 
     coast, river, hub and the water's shape use their own random numbers, so
     a city with no water is built exactly as the original would build it.
@@ -450,6 +451,8 @@ class Model:
             patch.ward.create_geometry()
         if self.gnome_homes:
             gnomes.build_gnome_homes(self)
+        else:
+            plots.build_burgage_plots(self)
         if self.shore:
             water.build_piers(self)
         countryside.build_countryside(self)

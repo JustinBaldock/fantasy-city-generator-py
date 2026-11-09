@@ -422,11 +422,12 @@ class MainWindow(QMainWindow):
         self.roads_box.addItem("Two roads", False)
         self.roads_box.setToolTip("How many roads lead out of town")
         self.homes_box = QComboBox()
-        self.homes_box.addItem("Ordinary", False)
+        self.homes_box.addItem("Burgage plots", False)
         self.homes_box.addItem("Gnome", True)
         self.homes_box.setToolTip(
-            "Gnome homes are hexagons with square rooms off their sides. "
-            "Shops, stores, barns and government buildings stay rectangular.")
+            "Burgage plots have the house at the street front and a garden "
+            "behind. Gnome homes are hexagons with square rooms off their "
+            "sides, among rectangular shops, stores and barns.")
         features = (("Walls", self.walls_box),
                     ("Castle", self.citadel_box),
                     ("Plaza", self.plaza_box),

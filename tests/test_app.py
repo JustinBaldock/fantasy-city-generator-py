@@ -38,7 +38,7 @@ def scroll(view, position, amount):
 
 def test_homes_can_be_switched_to_gnome_homes_and_back(window):
     def gnome_homes():
-        return sum(isinstance(building, GnomeHome)
+        return sum(isinstance(getattr(building, "house", None), GnomeHome)
                    for patch in window.model.patches
                    for building in patch.ward.geometry)
 

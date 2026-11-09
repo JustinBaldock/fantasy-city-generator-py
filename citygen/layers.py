@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from .geometry import chaikin
 from .gnomes import GnomeHome
+from .plots import Plot
 from .water import BRIDGE_WIDTH, RIVER_WIDTH
 from .wards import (
     AdministrationWard,
@@ -28,6 +29,7 @@ from .wards import (
 NORMAL_STROKE = 0.3
 THICK_STROKE = 1.8
 PIER_WIDTH = 1.0
+PLOT_BORDER = 0.15
 FURROW_WIDTH = 0.14
 LINE_ROUNDING = 2
 
@@ -61,6 +63,10 @@ class Palette:
     @property
     def green(self):
         return _mix(self.paper, self.light, 0.55)
+
+    @property
+    def garden(self):
+        return _mix(self.paper, self.light, 0.25)
 
     @property
     def furrow(self):
@@ -176,12 +182,18 @@ def build_layers(model, palette):
     castles = []
     temples = []
     room_walls = []
+    gardens = []
     for patch in model.patches:
         ward = patch.ward
-        shapes = [_xy(polygon) for polygon in ward.geometry]
+        built = []
         for polygon in ward.geometry:
+            if isinstance(polygon, Plot):
+                gardens.append(_xy(polygon))
+                polygon = polygon.house
             if isinstance(polygon, GnomeHome):
                 room_walls += _pairs(polygon.room_walls())
+            built.append(polygon)
+        shapes = [_xy(polygon) for polygon in built]
         if isinstance(ward, Castle):
             castles += shapes
         elif isinstance(ward, Cathedral):
@@ -193,6 +205,8 @@ def build_layers(model, palette):
             parks += shapes
 
     layers.append(Layer("Greens", fill=palette.green, polygons=parks))
+    layers.append(Layer("Plots", fill=palette.garden, stroke=palette.medium,
+                        width=PLOT_BORDER, polygons=gardens))
     layers.append(Layer("Buildings", fill=palette.light, stroke=palette.dark,
                         width=NORMAL_STROKE, polygons=buildings))
     layers.append(Layer("Room walls", stroke=palette.dark, width=NORMAL_STROKE,

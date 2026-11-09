@@ -4,10 +4,11 @@ import random
 
 import pytest
 
-from citygen import editing, export, gnomes
+from citygen import editing, export, gnomes, plots
 from citygen.editing import CityEditor
 from citygen.geometry import Point, Polygon
 from citygen.gnomes import GnomeHome, outline
+from citygen.plots import Plot
 from citygen.layers import PALETTES, build_layers
 from citygen.model import Model
 from citygen.wards import (
@@ -25,13 +26,28 @@ OPTIONS = [dict(size=9, seed=3), dict(size=15, seed=7),
            dict(size=15, seed=5, walls=True, citadel=True, temple=True)]
 
 
+def built_on(ward):
+    """The ward's buildings, taken off their plots."""
+    return [getattr(b, "house", b) for b in ward.geometry]
+
+
 def homes_in(model):
     return [(patch.ward, home) for patch in model.patches
-            for home in patch.ward.geometry if isinstance(home, GnomeHome)]
+            for home in built_on(patch.ward) if isinstance(home, GnomeHome)]
 
 
 def is_home_ward(ward):
     return ward.homes or isinstance(ward, Farm)
+
+
+def within(polygon, v):
+    """Inside the polygon, or on its edge, give or take rounding."""
+    return polygon.contains_point(v) or any(
+        plots._to_segment(v.x, v.y, a, b) < 1e-6 for a, b in polygon.edges())
+
+
+def flat(points):
+    return [c for p in points for c in p]
 
 
 def between(a, b):
@@ -101,7 +117,7 @@ def test_gnome_homes_only_go_in_wards_where_people_live(options):
     for patch in model.patches:
         if not is_home_ward(patch.ward):
             assert not any(isinstance(b, GnomeHome)
-                           for b in patch.ward.geometry)
+                           for b in built_on(patch.ward))
 
 
 def is_rectangle(building):
@@ -121,14 +137,14 @@ def test_home_wards_hold_only_homes_and_true_rectangles(options):
     for patch in model.patches:
         ward = patch.ward
         if is_home_ward(ward):
-            for building in ward.geometry:
+            for building in built_on(ward):
                 assert isinstance(building, GnomeHome) or is_rectangle(building)
 
 
 def test_a_gnome_city_still_has_plenty_of_rectangles():
     model = Model(gnome_homes=True, size=24, seed=21)
     wards = [p.ward for p in model.patches if p.ward.homes]
-    buildings = [b for ward in wards for b in ward.geometry]
+    buildings = [b for ward in wards for b in built_on(ward)]
     rectangles = [b for b in buildings if is_rectangle(b)]
     assert 0.1 < len(rectangles) / len(buildings) < 0.5
 
@@ -138,7 +154,7 @@ def test_merchants_have_more_shops_than_craftsmen_have_workshops():
         buildings = [
             b for seed in range(1, 13)
             for p in Model(gnome_homes=True, size=24, seed=seed).patches
-            if type(p.ward) is ward_type for b in p.ward.geometry]
+            if type(p.ward) is ward_type for b in built_on(p.ward)]
         return sum(map(is_rectangle, buildings)) / len(buildings)
 
     assert share(MerchantWard) > share(CraftsmenWard)
@@ -151,7 +167,7 @@ def test_government_and_military_buildings_are_all_rectangles():
         for patch in model.patches:
             if isinstance(patch.ward, (AdministrationWard, MilitaryWard)):
                 found += len(patch.ward.geometry)
-                assert all(is_rectangle(b) for b in patch.ward.geometry)
+                assert all(is_rectangle(b) for b in built_on(patch.ward))
     assert found
 
 
@@ -193,22 +209,24 @@ def test_temples_keep_their_landmarks():
 
 
 @pytest.mark.parametrize("options", OPTIONS)
-def test_homes_stay_in_their_blocks(options):
+def test_buildings_stay_in_their_plots_and_plots_in_their_blocks(options):
     model = Model(gnome_homes=True, **options)
     for patch in model.patches:
         ward = patch.ward
         if isinstance(ward, Farm) or not (ward.homes or ward.rectangle_share):
             continue
         block = ward.get_city_block()
-        for building in ward.geometry:
-            assert all(block.contains_point(v) for v in building)
+        for plot in ward.geometry:
+            assert isinstance(plot, Plot)
+            assert all(within(block, v) for v in plot)
+            assert all(within(plot, v) for v in plot.house)
 
 
 @pytest.mark.parametrize("options", OPTIONS)
 def test_buildings_do_not_touch_each_other(options):
     model = Model(gnome_homes=True, **options)
     buildings = [b for p in model.patches if is_home_ward(p.ward)
-                 or p.ward.rectangle_share for b in p.ward.geometry]
+                 or p.ward.rectangle_share for b in built_on(p.ward)]
     for i, a in enumerate(buildings):
         for b in buildings[i + 1:]:
             if abs(a[0].x - b[0].x) + abs(a[0].y - b[0].y) < 25:
@@ -251,7 +269,8 @@ def test_a_long_plot_gets_more_than_one_home():
 def test_a_long_plot_can_be_one_long_building():
     plot = Polygon([Point(0, 0), Point(40, 0), Point(40, 8), Point(0, 8)])
     chooser = random.Random(1)
-    built = [gnomes._buildings_for([plot], 1.0, chooser)[0] for _ in range(20)]
+    built = [gnomes._buildings_for([plot], 1.0, chooser)[0].house
+             for _ in range(20)]
     assert all(is_rectangle(b) for b in built)
     assert max(b[0].subtract(b[1]).length for b in built) > 10
 
@@ -260,7 +279,7 @@ def test_rectangles_fit_tight_and_awkward_plots():
     plot = Polygon([Point(0, 0), Point(9, 1), Point(7, 6), Point(1, 4)])
     chooser = random.Random(1)
     for _ in range(50):
-        building = gnomes._buildings_for([plot], 1.0, chooser)[0]
+        building = gnomes._buildings_for([plot], 1.0, chooser)[0].house
         assert is_rectangle(building)
         assert all(plot.contains_point(v) for v in building)
 
@@ -277,7 +296,7 @@ def test_each_room_gets_a_wall_on_the_map():
         len(home.joins) for _, home in homes_in(model))
 
 
-def test_ordinary_maps_have_no_room_walls():
+def test_burgage_maps_have_no_room_walls():
     assert walls_of(Model(size=15, seed=7)) == []
 
 
@@ -298,13 +317,13 @@ def test_the_json_says_which_homes_it_has(tmp_path):
 def home_in_editor(editor):
     return next(b for b in sorted(editor.buildings,
                                   key=lambda b: (b.cx, b.cy))
-                if isinstance(b.polygon, GnomeHome))
+                if isinstance(getattr(b.polygon, "house", None), GnomeHome))
 
 
 def test_clicking_a_room_selects_its_home():
     editor = CityEditor(Model(gnome_homes=True, size=15, seed=7))
     building = home_in_editor(editor)
-    home = building.polygon
+    home = building.polygon.house
     a, _ = home.joins[0]
     out1, out2 = home[a + 1], home[a + 3]
     inside_room = Point((out1.x + out2.x) / 2, (out1.y + out2.y) / 2)
@@ -314,7 +333,7 @@ def test_clicking_a_room_selects_its_home():
 def test_a_home_moves_whole_and_its_rooms_go_with_it():
     editor = CityEditor(Model(gnome_homes=True, size=15, seed=7))
     building = home_in_editor(editor)
-    home = building.polygon
+    home = building.polygon.house
     before = [(a.x, a.y, b.x, b.y) for a, b in home.room_walls()]
     x, y = building.center()
 
@@ -322,7 +341,7 @@ def test_a_home_moves_whole_and_its_rooms_go_with_it():
     editor.drag_to(building, 1.5, -1.0)
     editor.end_move()
 
-    assert isinstance(building.polygon, GnomeHome)
+    assert building.polygon.house is home
     moved_x, moved_y = building.center()
     dx, dy = moved_x - x, moved_y - y
     assert (dx, dy) != (0, 0)
@@ -333,7 +352,8 @@ def test_a_home_moves_whole_and_its_rooms_go_with_it():
 
     assert editor.undo()
     assert building.center() == pytest.approx((x, y))
-    assert [(a.x, a.y, b.x, b.y) for a, b in home.room_walls()] == before
+    assert flat((a.x, a.y, b.x, b.y) for a, b in home.room_walls()) == (
+        pytest.approx(flat(before)))
 
 
 def test_a_locked_home_stays_put():

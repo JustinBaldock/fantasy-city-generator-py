@@ -6,16 +6,25 @@ straight sides. Gnomes still build shops, workshops, stores, barns and
 government buildings, and those are plain squares and rectangles. Each ward
 says what share of its plots go to them.
 
-The city is laid out as usual and each plot then gets its new building in
-place of the ordinary one. This uses its own random numbers and the wards only
-cut their land into bigger plots, so the streets, walls and water stay the
-same.
+Each building stands in its plot, which is drawn as a property with a border.
+A plot too long for one home is cut in two, with a lane between.
 """
 
 import math
 import random
 
-from .geometry import Point, Polygon, distance
+from .geometry import Point, Polygon
+from .plots import (
+    MARGIN,
+    MIN_CLEARANCE,
+    Plot,
+    clearance,
+    length_of,
+    long_way,
+    plot_with_rectangle,
+    rectangle,
+    roomiest_spot,
+)
 from .wards import ALLEY, Farm
 
 SIDES = 6
@@ -27,19 +36,8 @@ ROOM_SIZE = (0.6, 0.85)  # A room's side, as a share of the hexagon's side.
 SCALES = (1.0, 0.9, 0.8, 0.7, 0.6, 0.5)
 MIN_RADIUS = 0.9  # Smaller homes are too tiny to read, unless they have no room.
 
-GRID = 4  # Spots to try across a plot, each way.
-REFINE = 3  # How many times to look closer around the best spot.
-
 LONG_PLOT = 2.6  # A plot this many times longer than wide gets two homes.
-MIN_CLEARANCE = 1.0  # A plot narrower than this is left empty.
-MARGIN = 0.2  # Open ground kept between a home and the edge of its plot.
 FARM_RADIUS = 2.4
-
-MAX_ASPECT = 3.0  # How many times longer than wide a rectangle can be.
-
-# Sizes to try for a rectangle, as shares of the widest circle that fits. The
-# last one always fits, since its corners then stay inside that circle.
-RECTANGLE_SCALES = (1.5, 1.3, 1.15, 1.0, 0.85, 0.7, 0.6, 0.5)
 
 BARN_SIZE = ((2.2, 3.6), (3.6, 6.0))  # The range of its width and length.
 BARN_GAP = 1.0  # Between a barn and the rooms of its farmhouse.
@@ -95,51 +93,10 @@ def outline(x, y, radius, turn, room, sides):
     return points
 
 
-def _clearance(plot, x, y):
-    """How far a point is from the plot's nearest edge, 0 if it's outside."""
-    if not plot.contains_point(Point(x, y)):
-        return 0.0
-    nearest = math.inf
-    for a, b in plot.edges():
-        dx = b.x - a.x
-        dy = b.y - a.y
-        length = dx * dx + dy * dy
-        along = ((x - a.x) * dx + (y - a.y) * dy) / length if length else 0.0
-        along = max(0.0, min(1.0, along))
-        nearest = min(nearest, math.hypot(x - a.x - along * dx,
-                                          y - a.y - along * dy))
-    return nearest
 
 
-def _roomiest_spot(plot):
-    """Roughly the centre of the widest circle that fits, and its radius."""
-    left = min(v.x for v in plot)
-    right = max(v.x for v in plot)
-    top = min(v.y for v in plot)
-    bottom = max(v.y for v in plot)
-    step_x = (right - left) / GRID
-    step_y = (bottom - top) / GRID
-
-    centre = plot.centroid
-    spots = [(centre.x, centre.y)]
-    for i in range(GRID):
-        for j in range(GRID):
-            spots.append((left + (i + 0.5) * step_x, top + (j + 0.5) * step_y))
-    x, y = max(spots, key=lambda s: _clearance(plot, *s))
-
-    for _ in range(REFINE):
-        step_x /= 2
-        step_y /= 2
-        spots = [(x + i * step_x, y + j * step_y)
-                 for i in (-1, 0, 1) for j in (-1, 0, 1)]
-        x, y = max(spots, key=lambda s: _clearance(plot, *s))
-    return x, y, _clearance(plot, x, y)
 
 
-def _long_way(plot):
-    """The start of the plot's longest edge, and that edge's direction."""
-    start, end = max(plot.edges(), key=lambda e: distance(e[0], e[1]))
-    return start, end.subtract(start).norm(1.0)
 
 
 def _rooms_that_fit(plot, x, y, radius, turn, room):
@@ -149,7 +106,7 @@ def _rooms_that_fit(plot, x, y, radius, turn, room):
         shape = outline(x, y, radius, turn, room, {side})
         # The room's two outer corners are the ones furthest out.
         far_corners = shape[side + 2:side + 4]
-        if all(_clearance(plot, *p) >= MARGIN for p in far_corners):
+        if all(clearance(plot, *p) >= MARGIN for p in far_corners):
             sides.append(side)
     return sides
 
@@ -165,14 +122,14 @@ def _home_at(x, y, radius, turn, room, sides):
 
 
 def _home_on(plot, spot, chooser):
-    x, y, clearance = spot
-    if clearance < MIN_CLEARANCE:
+    x, y, space = spot
+    if space < MIN_CLEARANCE:
         return None
-    clearance -= MARGIN
+    space -= MARGIN
 
     wanted = chooser.choice(ROOMS)
     room_size = chooser.uniform(*ROOM_SIZE)
-    _, along = _long_way(plot)
+    _, along = long_way(plot)
     edge_angle = math.atan2(along.y, along.x)
     turns = [edge_angle, edge_angle + math.pi / SIDES]
     chooser.shuffle(turns)
@@ -180,7 +137,7 @@ def _home_on(plot, spot, chooser):
     # The biggest hexagon that leaves space for the rooms it wants.
     best = None
     for scale in SCALES:
-        radius = clearance * scale
+        radius = space * scale
         for turn in turns:
             sides = _rooms_that_fit(plot, x, y, radius, turn,
                                     radius * room_size)
@@ -194,49 +151,21 @@ def _home_on(plot, spot, chooser):
     return _home_at(x, y, radius, turn, radius * room_size, chosen)
 
 
-def _length_of(plot, start, along):
-    reach = [v.subtract(start).dot(along) for v in plot]
-    return min(reach), max(reach)
 
 
-def _rectangle(x, y, along, half_length, half_width):
-    """A rectangle around a point, with its length in the direction given."""
-    across = along.rotate90()
-    return Polygon(
-        Point(x + way * half_length * along.x + side * half_width * across.x,
-              y + way * half_length * along.y + side * half_width * across.y)
-        for way, side in ((-1, -1), (1, -1), (1, 1), (-1, 1)))
 
 
-def _rectangle_on(plot, spot, chooser):
-    """A square or rectangle lined up with the plot's longest edge."""
-    x, y, clearance = spot
-    if clearance < MIN_CLEARANCE:
-        return None
-    clearance -= MARGIN
-
-    start, along = _long_way(plot)
-    low, high = _length_of(plot, start, along)
-    longest = min((high - low) / (2 * clearance), MAX_ASPECT)
-    aspect = math.sqrt(chooser.uniform(1.0, max(1.0, longest)))
-
-    for scale in RECTANGLE_SCALES:
-        rectangle = _rectangle(x, y, along, clearance * scale * aspect,
-                               clearance * scale / aspect)
-        if all(_clearance(plot, v.x, v.y) >= MARGIN for v in rectangle):
-            break
-    return rectangle
 
 
 def _shares_of(plot):
     """Plots with their roomiest spots, cut across if too long for one home."""
-    spot = _roomiest_spot(plot)
-    clearance = spot[2]
-    start, along = _long_way(plot)
-    low, high = _length_of(plot, start, along)
+    spot = roomiest_spot(plot)
+    space = spot[2]
+    start, along = long_way(plot)
+    low, high = length_of(plot, start, along)
     length = high - low
     # Halves too thin for a home stay whole, which also ends the cutting.
-    if clearance < MIN_CLEARANCE or length < LONG_PLOT * 2 * clearance:
+    if space < MIN_CLEARANCE or length < LONG_PLOT * 2 * space:
         return [(plot, spot)]
 
     middle = start.add(along.scale((low + high) / 2))
@@ -248,24 +177,22 @@ def _shares_of(plot):
 
 
 def _buildings_for(plots, rectangle_share, chooser):
-    """Homes and plain buildings for a ward's plots.
+    """Plots for a ward, each with a home or a plain building on it.
 
     A plain building takes its whole plot, so the long thin ones make
     warehouses and halls instead of being cut in two.
     """
-    buildings = []
+    built = []
     for plot in plots:
         if len(plot) < 3:
             continue
         if chooser.random() < rectangle_share:
-            building = _rectangle_on(plot, _roomiest_spot(plot), chooser)
-            buildings += [building] if building is not None else []
+            built.append(plot_with_rectangle(plot, chooser))
             continue
         for share, spot in _shares_of(plot):
             home = _home_on(share, spot, chooser)
-            if home is not None:
-                buildings.append(home)
-    return buildings
+            built.append(None if home is None else Plot(share, home))
+    return [plot for plot in built if plot is not None]
 
 
 def _barn_near(ward, x, y, turn, sides, room, chooser):
@@ -284,9 +211,9 @@ def _barn_near(ward, x, y, turn, sides, room, chooser):
     for side in free:
         angle = turn + (side + 0.5) * 2 * math.pi / SIDES
         out = Point(math.cos(angle), math.sin(angle))
-        barn = _rectangle(x + out.x * reach, y + out.y * reach,
+        barn = rectangle(x + out.x * reach, y + out.y * reach,
                           out.rotate90(), length / 2, width / 2)
-        if (all(_clearance(ward.patch.shape, v.x, v.y) >= FARM_EDGE
+        if (all(clearance(ward.patch.shape, v.x, v.y) >= FARM_EDGE
                 for v in barn)
                 and (model.seaward is None or all(
                     model.seaward(v) < -FARM_EDGE for v in barn))):

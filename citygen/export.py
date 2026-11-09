@@ -4,9 +4,10 @@ import json
 from xml.sax.saxutils import escape
 
 from .layers import build_layers, map_extent
+from .plots import Plot
 from .model import size_name
 
-JSON_FORMAT_VERSION = 4
+JSON_FORMAT_VERSION = 5
 
 
 def _xy(polygon):
@@ -21,8 +22,16 @@ def _wall(wall):
     }
 
 
+def _building(polygon):
+    return polygon.house if isinstance(polygon, Plot) else polygon
+
+
 def city_to_dict(model):
-    """The city as plain data. This is this app's own format."""
+    """The city as plain data. This is this app's own format.
+
+    plots lines up with buildings, giving the border of each building's plot,
+    or None for a building that has no plot of its own.
+    """
     wards = []
     for patch in model.patches:
         wards.append({
@@ -31,7 +40,9 @@ def city_to_dict(model):
             "within_city": patch.within_city,
             "within_walls": patch.within_walls,
             "shape": _xy(patch.shape),
-            "buildings": [_xy(b) for b in patch.ward.geometry],
+            "buildings": [_xy(_building(b)) for b in patch.ward.geometry],
+            "plots": [_xy(b) if isinstance(b, Plot) else None
+                      for b in patch.ward.geometry],
             "landmarks": [_xy(b) for b in patch.ward.landmarks],
         })
 
