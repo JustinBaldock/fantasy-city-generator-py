@@ -167,3 +167,19 @@ def test_orchards_are_drawn_and_exported():
     data = city_to_dict(model)
     assert len(data["orchards"]) == len(model.orchards)
     assert len(data["orchard_trees"]) == len(model.orchard_trees)
+
+
+def test_wheat_fields_are_two_to_three_times_an_orchard():
+    import statistics
+
+    models = [Model(size=15, seed=seed, orchards=True, fields=True)
+              for seed in SEEDS]
+    fields = [abs(p.square) for m in models for p in m.fields]
+    orchards = [abs(p.square) for m in models for p in m.orchards]
+    ratio = statistics.median(fields) / statistics.median(orchards)
+    assert 2 <= ratio <= 3
+
+
+def test_farmland_is_labelled_wheat_fields():
+    model = Model(size=15, seed=7, fields=True, orchards=False)
+    assert any(p.ward.label == "Wheat fields" for p in model.patches)

@@ -518,7 +518,7 @@ class MainWindow(QMainWindow):
                     ("Greens", self.greens_box),
                     ("Coast", self.coast_box),
                     ("River", self.river_box),
-                    ("Fields", self.fields_box),
+                    ("Wheat fields", self.fields_box),
                     ("Forests", self.forests_box),
                     ("Orchards", self.orchards_box),
                     ("Roads", self.roads_box),

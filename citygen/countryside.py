@@ -3,6 +3,7 @@
 This module is original to this port. The published source leaves the land
 around a city empty, so these are our own methods.
 
+The fields are wheat fields, two to three times the size of an orchard.
 Orchards take some of the farm plots nearest each farmhouse, and the higher
 farmland near town that is too steep for fields. Their trees stand in rows
 along the plot's longest edge. They use their own random numbers, and the
@@ -28,7 +29,8 @@ VIEW_MARGIN = 1.3  # How far past the city land is worth filling.
 FIELD_REACH = 0.55  # How far out fields go, in city radii.
 FIELD_SHARE = 0.45  # The share of the land low enough for fields.
 MIN_FIELD_BLOCK = 300
-PLOT_SIZE = 220
+PLOT_SIZE = 220  # An orchard.
+WHEAT_FIELD = PLOT_SIZE * 2.5  # Two to three orchards.
 FURROW_SPACING = 0.9
 
 TREE_SPACING = 5.0
@@ -232,26 +234,32 @@ def _plant_orchards(model, farm_plots):
             continue
         near = sorted(plots, key=lambda p: distance(p.centroid, house))
         count = max(1, round(len(near) * ORCHARD_SHARE * chooser.random()))
-        for i, plot in enumerate(near):
-            if i < count and distance(plot.centroid, house) < ORCHARD_REACH:
+        for i, field in enumerate(near):
+            if i >= count or distance(field.centroid, house) >= ORCHARD_REACH:
+                left.append(field)
+                continue
+            # A field's worth of land makes a few orchards.
+            for plot in _cut(field, PLOT_SIZE):
                 trees = orchard_rows(plot, chooser, roads=roads)
                 if trees:
                     model.orchards.append(plot)
                     model.orchard_trees += trees
-                    continue
-            left.append(plot)
     return left
 
 
-def _farm_plots(ward):
+def _cut(land, size):
+    return [plot for plot in create_alleys(land, size, 0.25, 0.3, 0.12)
+            if len(plot) >= 3]
+
+
+def _farm_plots(ward, size):
     """The ward's land cut into plots, missing any with a house on them."""
     block = ward.get_city_block().shrink_eq(1.0)
     if len(block) < 3 or block.square < MIN_FIELD_BLOCK:
         return None
     houses = [v for building in ward.geometry for v in building]
-    return [plot for plot in create_alleys(block, PLOT_SIZE, 0.25, 0.3, 0.12)
-            if len(plot) >= 3
-            and not any(plot.contains_point(v) for v in houses)]
+    return [plot for plot in _cut(block, size)
+            if not any(plot.contains_point(v) for v in houses)]
 
 
 def _plant_hill_orchards(model, hill_plots):
@@ -287,12 +295,12 @@ def _build_fields(model, height):
         if height(center.x, center.y) > top:
             hills.append(ward)
             continue
-        plots = _farm_plots(ward)
+        plots = _farm_plots(ward, WHEAT_FIELD)
         if plots is not None:
             farm_plots.append((ward, plots))
 
     if model.orchards_needed:
-        hill_plots = [(ward, _farm_plots(ward)) for ward in hills]
+        hill_plots = [(ward, _farm_plots(ward, PLOT_SIZE)) for ward in hills]
         _plant_hill_orchards(
             model, [(w, p) for w, p in hill_plots if p is not None])
         left = _plant_orchards(model, farm_plots)
@@ -309,7 +317,7 @@ def _build_fields(model, height):
             continue
         if model.fields_needed and (
                 not plots or any(id(plot) in fields for plot in plots)):
-            ward.label = "Fields"
+            ward.label = "Wheat fields"
         elif plots:
             ward.label = "Orchard"
 
