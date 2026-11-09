@@ -241,6 +241,7 @@ class CityEditor:
         self._drag_walls = None
         self._drag_origin = None
         self._drag_lists = None
+        self._corner = None
         self.wall_parts = {}
         self.all_wall_parts = {}
         self.wall_allowance = {}
@@ -485,11 +486,17 @@ class CityEditor:
 
     def _divide_edge(self, a, b, pieces):
         """Put new corners on an edge, in everything that shares that edge."""
+        self._put_corners(a, b, [i / pieces for i in range(1, pieces)])
+
+    def _put_corners(self, a, b, shares):
+        """New corners part way along an edge, from a, in everything sharing it.
+
+        Returns the new corners.
+        """
         home_a = self._home(a)
         home_b = self._home(b)
         middle = []
-        for i in range(1, pieces):
-            t = i / pieces
+        for t in shares:
             point = Point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
             self.wall_home[point] = (home_a[0] + (home_b[0] - home_a[0]) * t,
                                      home_a[1] + (home_b[1] - home_a[1]) * t)
@@ -508,6 +515,7 @@ class CityEditor:
                 index = patch.shape.find_edge(first, last)
                 if index != -1:
                     self._insert_corners(patch.shape, index, points)
+        return middle
 
     def _insert_corners(self, polygon, index, points):
         self._note_list(polygon)
@@ -580,7 +588,7 @@ class CityEditor:
         self._carry_roads(wall, shares, ways, moved_walls)
         return shares
 
-    def _wall_gone_wrong(self, wall, points):
+    def _wall_gone_wrong(self, wall, points, check_water=True):
         """True if a push put a wall in water or took it across a wall.
 
         Every wall is checked against itself. A city wall being pushed isn't
@@ -588,7 +596,8 @@ class CityEditor:
         corners, so they can graze each other where they join. A castle wall
         mustn't break out of the city wall, though.
         """
-        if any(self._water_at(point.x, point.y) for point in points):
+        if check_water and any(self._water_at(point.x, point.y)
+                               for point in points):
             return True
         city_wall = wall is self.model.wall
         for part in self.all_wall_parts:
@@ -805,11 +814,31 @@ class CityEditor:
         return any(_distance_to_segment(x, y, a.x, a.y, b.x, b.y) < reach
                    for a, b in zip(model.river, model.river[1:]))
 
+    def _river_gap(self, x, y):
+        """How far a point is from the middle of the river."""
+        return min((_distance_to_segment(x, y, a.x, a.y, b.x, b.y)
+                    for a, b in zip(self.model.river, self.model.river[1:])),
+                   default=math.inf)
+
     def _on_water(self, building):
         return any(self._water_at(x, y) for x, y in building.corners())
 
     def _try_step(self, mover, dx, dy):
         """Move a building and clear its way. False if it won't fit."""
+        return self._step(mover, lambda shift, moved_walls: shift(mover, dx, dy))
+
+    def _step(self, mover, start, walls_give_way=True, heading=None):
+        """Make one change, then push aside whatever it runs into.
+
+        start makes the change, given the shift function below and the wall
+        corners moved so far, and returns False if the change won't go. mover
+        is the building being dragged, if any, which nothing may push. With
+        walls_give_way False, a building pushed into a wall stops there.
+        heading, a unit vector, is the way the change is going. A building
+        that can't be pushed aside is then tried that way instead, which lets
+        a row of buildings along a wall move ahead of it. Everything is put
+        back if it can't all be made to fit.
+        """
         before = {}
         moved_walls = {}
         self.squeezed = {}
@@ -821,14 +850,18 @@ class CityEditor:
             self._reindex(building)
             return False
 
-        def shift(building, x, y, move_walls=True):
+        def shift(building, x, y, move_walls=walls_give_way):
             """Move a building. False if something solid is in the way."""
             before.setdefault(building, building.corners())
             building.shift(x, y)
             self._reindex(building)
             if self._on_water(building):
                 return place_back(building, x, y)
-            if move_walls and not self._clear_walls(building, moved_walls):
+            if move_walls:
+                if not self._clear_walls(building, moved_walls):
+                    return place_back(building, x, y)
+            elif self._tightest_wall_part(building)[0] is not None:
+                # Walls that can't give way stop it instead.
                 return place_back(building, x, y)
             return True
 
@@ -847,10 +880,10 @@ class CityEditor:
             self.squeezed = {}
             return False
 
-        if not shift(mover, dx, dy):
+        if not start(shift, moved_walls):
             return give_up()
 
-        waiting = [mover]
+        waiting = [] if mover is None else [mover]
         pushes = 0
         shoves = {}
         while waiting or self.squeezed:
@@ -899,6 +932,12 @@ class CityEditor:
                     if other not in waiting:
                         waiting.append(other)
                     continue
+                if not solid and heading is not None:
+                    size = math.hypot(*push) + PUSH_GAP
+                    if shift(other, heading[0] * size, heading[1] * size):
+                        if other not in waiting:
+                            waiting.append(other)
+                        continue
 
                 # The other can't give way, so this one must.
                 if (active is mover or active in self.locked
@@ -974,13 +1013,169 @@ class CityEditor:
 
     def end_move(self):
         """Finish a drag, so that it can be undone as one step."""
-        if self._drag_start:
+        if self._drag_start or self._drag_walls or self._drag_lists:
             self.history.append((self._drag_start, self._drag_walls,
                                  self._drag_lists))
         self._drag_start = None
         self._drag_walls = None
         self._drag_lists = None
         self._drag_origin = None
+        self._corner = None
+
+    # Walls edited by hand.
+
+    def _corner_walls(self, corner):
+        return [wall for wall, _ in self._walls() if corner in wall.shape]
+
+    def is_fixed_corner(self, corner):
+        """Corners on the water stay put, so the wall still meets it."""
+        return corner in self.model.water_points
+
+    def wall_corners(self):
+        """Every wall corner that can be dragged, and whether it's a tower."""
+        corners = {}
+        for wall, _ in self._walls():
+            for corner in wall.shape:
+                if not self.is_fixed_corner(corner):
+                    corners[corner] = corners.get(corner) or (
+                        corner in wall.towers)
+        return corners
+
+    def wall_corner_at(self, point, reach):
+        """The draggable wall corner nearest a point, if one is in reach."""
+        nearest = None
+        best = reach
+        for corner in self.wall_corners():
+            gap = math.hypot(corner.x - point.x, corner.y - point.y)
+            if gap <= best:
+                nearest = corner
+                best = gap
+        return nearest
+
+    def wall_edge_at(self, point, reach):
+        """The stretch of wall under a point, as (a, b, share along), or None.
+
+        Only stretches that are built, not gaps for water, count.
+        """
+        nearest = None
+        best = reach
+        for wall, _ in self._walls():
+            shape = wall.shape
+            for i, a in enumerate(shape):
+                b = shape[(i + 1) % len(shape)]
+                if not wall.segments[i]:
+                    continue
+                gap = _distance_to_segment(point.x, point.y, a.x, a.y, b.x, b.y)
+                if gap <= best:
+                    length = (b.x - a.x) ** 2 + (b.y - a.y) ** 2
+                    t = ((point.x - a.x) * (b.x - a.x)
+                         + (point.y - a.y) * (b.y - a.y)) / (length or 1.0)
+                    nearest = (a, b, max(0.05, min(0.95, t)))
+                    best = gap
+        return nearest
+
+    def begin_wall_move(self, corner=None, edge=None):
+        """Start dragging a wall corner, or a new one put on an edge.
+
+        Returns the corner, or None if it can't be moved.
+        """
+        if edge is not None:
+            a, b, t = edge
+            if self._water_at(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t):
+                return None
+            self.changed_lists = {}
+            corner = self._put_corners(a, b, [t])[0]
+            self._index_walls()
+            lists = self.changed_lists
+            self.changed_lists = {}
+        else:
+            lists = {}
+        if corner is None or self.is_fixed_corner(corner):
+            return None
+        self._drag_start = {}
+        self._drag_walls = {}
+        self._drag_lists = dict(lists)
+        self._drag_origin = (corner.x, corner.y)
+        self._corner = corner
+        self._stuck_at = None
+        return corner
+
+    def drag_wall_to(self, corner, offset_x, offset_y):
+        """Take a dragged wall corner towards an offset from where it began.
+
+        The wall bends with it, and buildings in its way are pushed aside.
+        Returns True if it got there. Like a building, it waits at anything
+        that stops it.
+        """
+        if self._drag_origin is None or corner is not self._corner:
+            return False
+        if (self._stuck_at is not None
+                and math.hypot(offset_x - self._stuck_at[0],
+                               offset_y - self._stuck_at[1]) < RETRY_DISTANCE):
+            return False
+        self._stuck_at = None
+
+        self.pushes_spent = 0
+        for _ in range(MAX_SLIDES):
+            if self.pushes_spent > MAX_PUSHES_PER_MOVE:
+                return False
+            dx = self._drag_origin[0] + offset_x - corner.x
+            dy = self._drag_origin[1] + offset_y - corner.y
+            distance = math.hypot(dx, dy)
+            if distance < 0.01:
+                return True
+            step = min(1.0, MAX_STEP / distance)
+            if not self._step(None, lambda shift, moved: self._move_corner(
+                    corner, dx * step, dy * step, moved), walls_give_way=False,
+                    heading=(dx / distance, dy / distance)):
+                self._stuck_at = (offset_x, offset_y)
+                return False
+        return False
+
+    def _move_corner(self, corner, dx, dy, moved_walls):
+        """Move a wall corner. False if the wall would go wrong."""
+        moved_walls.setdefault(corner, (corner.x, corner.y))
+        self.wall_home.setdefault(corner, (corner.x, corner.y))
+        wet = self._water_at(corner.x, corner.y)
+        river_gap = self._river_gap(corner.x, corner.y)
+        corner.x += dx
+        corner.y += dy
+        if self._water_at(corner.x, corner.y) and (
+                not wet or self._river_gap(corner.x, corner.y) < river_gap):
+            # A corner built a little too near the river may only move away.
+            return False
+        walls = self._corner_walls(corner)
+        for wall in walls:
+            self._follow_banks(wall, moved_walls)
+        self._index_walls()
+        if any(self._wall_gone_wrong(wall, {corner: 1.0}, check_water=False)
+               for wall in walls):
+            return False
+        size = math.hypot(dx, dy) or 1.0
+        self._note_squeezed(None, {corner: 1.0}, (dx / size, dy / size))
+        return True
+
+    def toggle_tower(self, corner):
+        """Put a tower on a wall corner, or take one off. Gates have none.
+
+        Returns True if it changed anything. It can be undone.
+        """
+        if self.is_fixed_corner(corner):
+            return False
+        lists = {}
+        for wall in self._corner_walls(corner):
+            if corner in wall.gates:
+                return False
+            lists.setdefault(id(wall.towers), (wall.towers, list(wall.towers)))
+            if corner in wall.towers:
+                wall.towers.remove(corner)
+            else:
+                wall.towers.append(corner)
+        if not lists:
+            return False
+        self.history.append(({}, {}, lists))
+        self._index_walls()
+        return True
 
     def undo(self):
         """Put back everything the last drag moved, walls included."""

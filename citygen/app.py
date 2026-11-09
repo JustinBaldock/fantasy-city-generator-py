@@ -60,6 +60,9 @@ SIZE_PRESETS = (
 LOCKED_COLOUR = "#c0392b"
 SELECTED_COLOUR = "#2f7de1"
 
+HANDLE_PIXELS = 7  # How close the pointer must be to grab a wall corner.
+EDGE_PIXELS = 4  # How close to grab a stretch of wall and add a corner.
+
 MIN_ZOOM = 0.3
 MAX_ZOOM = 40.0
 
@@ -68,7 +71,9 @@ class MapView(QWidget):
     """The map. Drag to pan, scroll to zoom, double-click to reset.
 
     In edit mode, a click selects a building and dragging moves it. Dragging
-    open ground still pans.
+    a wall corner moves it, and dragging a stretch of wall adds a corner there
+    and moves that. A right click locks a building or puts a tower on a wall
+    corner. Dragging open ground still pans.
     """
 
     hovered = Signal(str)
@@ -92,6 +97,8 @@ class MapView(QWidget):
         self.edit_mode = False
         self.selected = None
         self.moving = None
+        self.moving_corner = None
+        self.pending_edge = None
         self.move_start = None
 
     def set_city(self, model, palette, editor=None, reset_view=True):
@@ -168,6 +175,18 @@ class MapView(QWidget):
         for building in self.editor.locked:
             painter.drawPolygon(outline(building))
 
+        # Handles on the wall corners that can be dragged, filled for towers.
+        radius = HANDLE_PIXELS * 0.6 / self._scale()
+        pen = QPen(QColor(SELECTED_COLOUR), 1.5)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        for corner, tower in self.editor.wall_corners().items():
+            moving = corner is self.moving_corner
+            colour = QColor(SELECTED_COLOUR if moving or tower else "#ffffff")
+            colour.setAlpha(255 if moving else 170)
+            painter.setBrush(colour)
+            painter.drawEllipse(QPointF(corner.x, corner.y), radius, radius)
+
         if self.selected is not None:
             pen = QPen(QColor(SELECTED_COLOUR), 3)
             pen.setCosmetic(True)
@@ -200,6 +219,18 @@ class MapView(QWidget):
         self.zoom = new_zoom
         self.update()
 
+    def _scale(self):
+        """Pixels for each unit of map."""
+        return self._transform().m11()
+
+    def _wall_handle_at(self, spot):
+        """A wall corner, or else a stretch of wall, under the pointer."""
+        scale = self._scale()
+        corner = self.editor.wall_corner_at(spot, HANDLE_PIXELS / scale)
+        if corner is not None:
+            return corner, None
+        return None, self.editor.wall_edge_at(spot, EDGE_PIXELS / scale)
+
     def _spot(self, position):
         """The place on the map under a position in the window."""
         inverse, _ = self._transform().inverted()
@@ -211,6 +242,20 @@ class MapView(QWidget):
             return
         if self.edit_mode and self.editor is not None:
             spot = self._spot(event.position())
+            corner, edge = self._wall_handle_at(spot)
+            if corner is not None:
+                if self.editor.begin_wall_move(corner) is not None:
+                    self.select(None)
+                    self.moving_corner = corner
+                    self.move_start = spot
+                    self.update()
+                return
+            if edge is not None:
+                # The corner goes in once the pointer moves, so a click alone
+                # changes nothing.
+                self.select(None)
+                self.pending_edge = (edge, spot)
+                return
             building = self.editor.building_at(spot)
             self.select(building)
             if building is not None:
@@ -222,6 +267,12 @@ class MapView(QWidget):
         self.setCursor(Qt.CursorShape.ClosedHandCursor)
 
     def mouseReleaseEvent(self, event):
+        self.pending_edge = None
+        if self.moving_corner is not None:
+            self.editor.end_move()
+            self.moving_corner = None
+            self.edited.emit()
+            self.update()
         if self.moving is not None:
             self.editor.end_move()
             self.moving = None
@@ -238,10 +289,17 @@ class MapView(QWidget):
             self.reset_view()
 
     def contextMenuEvent(self, event):
-        """A right click locks or unlocks a building."""
+        """A right click locks or unlocks a building, or toggles a tower."""
         if not self.edit_mode or self.editor is None:
             return
-        building = self.editor.building_at(self._spot(event.pos()))
+        spot = self._spot(event.pos())
+        corner, _ = self._wall_handle_at(spot)
+        if corner is not None:
+            if self.editor.toggle_tower(corner):
+                self.refresh()
+                self.edited.emit()
+            return
+        building = self.editor.building_at(spot)
         if building is not None:
             self.select(building)
             self.editor.toggle_lock(building)
@@ -253,6 +311,20 @@ class MapView(QWidget):
         if self.model is None:
             return
         position = event.position()
+        if self.pending_edge is not None:
+            edge, start = self.pending_edge
+            self.pending_edge = None
+            corner = self.editor.begin_wall_move(edge=edge)
+            if corner is not None:
+                self.moving_corner = corner
+                self.move_start = start
+        if self.moving_corner is not None:
+            spot = self._spot(position)
+            self.editor.drag_wall_to(self.moving_corner,
+                                     spot.x - self.move_start.x,
+                                     spot.y - self.move_start.y)
+            self.refresh()
+            return
         if self.moving is not None:
             spot = self._spot(position)
             self.editor.drag_to(self.moving, spot.x - self.move_start.x,
@@ -268,6 +340,13 @@ class MapView(QWidget):
         if not invertible:
             return
         spot = inverse.map(position)
+        if (self.edit_mode and self.editor is not None
+                and self.drag_start is None):
+            corner, edge = self._wall_handle_at(Point(spot.x(), spot.y()))
+            self.setCursor(
+                Qt.CursorShape.SizeAllCursor if corner is not None
+                else Qt.CursorShape.CrossCursor if edge is not None
+                else Qt.CursorShape.ArrowCursor)
         patch = self.model.patch_at(Point(spot.x(), spot.y()))
         text = (patch.ward.label or "") if patch is not None else ""
         self.hover_position = position
@@ -349,7 +428,8 @@ class MainWindow(QMainWindow):
         self.edit_button.setCheckable(True)
         self.edit_button.setToolTip(
             "Click a building to select it, drag to move it, "
-            "right-click to lock it (E)")
+            "right-click to lock it. Drag wall corners and edges to reshape "
+            "the walls, and right-click a corner for a tower (E)")
         self.edit_button.toggled.connect(self._edit_toggled)
         buttons.addWidget(self.edit_button)
 
@@ -614,7 +694,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"{name}: {state}")
         elif self.view.edit_mode:
             self.statusBar().showMessage(
-                "Click a building to select it, drag to move it")
+                "Drag a building to move it, or a wall corner or edge to "
+                "reshape the wall. Right-click a corner for a tower")
 
     def toggle_lock(self):
         selected = self.view.selected
