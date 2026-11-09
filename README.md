@@ -24,7 +24,7 @@ python3 -m venv .venv
 - Walls, Castle, Plaza, Temple, Greens, Coast, River, Fields and Forests can each be Random, Yes or No. Changing one rebuilds the same seed.
 - Sea to sets the compass bearing of the coast, with 0 for north and 90 for east.
 - Roads sets whether every gate has a road, or only two roads lead out of town.
-- Homes switches between burgage plots and gnome homes. See below. Changing it keeps the same streets, walls and water.
+- Homes switches between burgage plots, gnome homes and classic houses. See below. Changing it keeps the same streets, walls and water.
 - Style changes the colours without changing the map.
 - Scroll to zoom, drag to pan, and double-click to reset the view.
 - Hover over a ward to see what kind it is.
@@ -33,7 +33,9 @@ python3 -m venv .venv
 
 Every house stands on its own plot of land, drawn as a property with a border round it.
 
-Homes are burgage plots unless you choose gnome homes. A burgage plot is the medieval town plot, with the house at the front on the street, or on a lane if the plot doesn't reach a street, and a long garden behind for growing food and keeping animals. A plot too cramped for a garden has a cottage that nearly fills it. Administration and Military buildings stand in the middle of their plots, and castles, temples, markets and farms have no plot border.
+Homes are burgage plots unless you choose gnome homes or classic houses. A burgage plot is the medieval town plot, with the house at the front on the street, or on a lane if the plot doesn't reach a street, and a long garden behind for growing food and keeping animals. A plot too cramped for a garden has a cottage that nearly fills it. Administration and Military buildings stand in the middle of their plots, and castles, temples, markets and farms have no plot border.
+
+Classic houses fill their plots edge to edge with no gardens or borders, as on the original generator. A classic map is the same as this port gave before plots were added.
 
 ## Gnome homes
 
