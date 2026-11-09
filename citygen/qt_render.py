@@ -15,20 +15,40 @@ from PySide6.QtGui import (
 from .layers import build_layers, map_extent
 
 # Qt fills many small paths far faster than one huge one, and a forest can
-# have thousands of trees, so its circles are grouped by square of map.
-CIRCLE_TILE = 40
+# have thousands of trees, so its circles are grouped by square of map. Big
+# layers of shapes, such as the buildings, are split the same way.
+CIRCLE_TILE = 10
+SHAPE_TILE = 10
+TILE_FROM = 10  # Layers with fewer shapes than this are drawn whole.
 
 _CAPS = {"flat": Qt.PenCapStyle.FlatCap, "round": Qt.PenCapStyle.RoundCap}
 _JOINS = {"miter": Qt.PenJoinStyle.MiterJoin, "round": Qt.PenJoinStyle.RoundJoin}
 
 
 def _tiles(layer):
-    """Split a layer's circles into one layer for each square of map."""
+    """Split a big layer into one layer for each square of map.
+
+    Each shape goes by its first point. Shapes in one layer share a style, so
+    drawing them in groups looks the same as drawing them all at once.
+    """
+    if layer.circles:
+        groups = {}
+        for circle in layer.circles:
+            x, y, _ = circle
+            groups.setdefault((x // CIRCLE_TILE, y // CIRCLE_TILE),
+                              []).append(circle)
+        return [replace(layer, circles=group) for group in groups.values()]
+
+    if len(layer.polygons) + len(layer.polylines) < TILE_FROM:
+        return [layer]
     groups = {}
-    for circle in layer.circles:
-        x, y, _ = circle
-        groups.setdefault((x // CIRCLE_TILE, y // CIRCLE_TILE), []).append(circle)
-    return [replace(layer, circles=group) for group in groups.values()]
+    for kind in ("polygons", "polylines"):
+        for shape in getattr(layer, kind):
+            x, y = shape[0]
+            group = groups.setdefault((x // SHAPE_TILE, y // SHAPE_TILE),
+                                      {"polygons": [], "polylines": []})
+            group[kind].append(shape)
+    return [replace(layer, **group) for group in groups.values()]
 
 
 def _path(layer):
@@ -63,14 +83,35 @@ def _brush(layer):
     return QBrush(QColor(layer.fill))
 
 
-def prepare(model, palette):
-    """Turn a city into paths, which Qt can then redraw quickly."""
+# Layers that editing never changes, so a view can keep them between redraws.
+FIXED_LAYERS = frozenset({
+    "Furrows", "Forest", "Orchard edges", "Orchards", "Sea", "River",
+    "Bridge edges", "Bridges", "Pier edges", "Piers",
+})
+
+
+def _prepare_layer(layer):
+    pen = _pen(layer)
+    brush = _brush(layer)
+    return [(_path(part), pen, brush) for part in _tiles(layer)
+            if part.polygons or part.polylines or part.circles]
+
+
+def prepare(model, palette, kept=None):
+    """Turn a city into paths, which Qt can then redraw quickly.
+
+    kept is a dict for the fixed layers, for a view that redraws one city in
+    one palette many times as it's edited. The first call fills it, and later
+    ones use what it holds instead of making those layers again.
+    """
     prepared = []
     for layer in build_layers(model, palette):
-        parts = _tiles(layer) if layer.circles else [layer]
-        for part in parts:
-            if part.polygons or part.polylines or part.circles:
-                prepared.append((_path(part), _pen(part), _brush(part)))
+        if kept is not None and layer.name in FIXED_LAYERS:
+            if layer.name not in kept:
+                kept[layer.name] = _prepare_layer(layer)
+            prepared += kept[layer.name]
+        else:
+            prepared += _prepare_layer(layer)
     return prepared
 
 

@@ -294,3 +294,26 @@ def test_an_unedited_map_is_replaced_without_asking(window, monkeypatch):
 
     monkeypatch.setattr(QMessageBox, "question", fail)
     window.new_map()
+
+
+def test_hovering_and_small_pans_reuse_the_drawn_map(window, monkeypatch):
+    from citygen import qt_render
+
+    view = window.view
+    view.repaint()
+    calls = []
+    monkeypatch.setattr(qt_render, "paint",
+                        lambda painter, prepared: calls.append(1))
+    patch = labelled_patch(window.model)
+    QTest.mouseMove(view, scene_to_widget(view, patch))
+    view.repaint()
+    view.pan += QPointF(15, -10)
+    view.repaint()
+    assert calls == []
+
+    view.pan += QPointF(view.width(), 0)
+    view.repaint()
+    assert len(calls) == 1
+    window.palette_box.setCurrentIndex(1)
+    view.repaint()
+    assert len(calls) == 2

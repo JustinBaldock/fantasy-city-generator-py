@@ -75,3 +75,20 @@ def test_window_builds_and_changes_cities(qapp):
     window.palette_box.setCurrentText("Night")
     assert window.view.palette_colours == PALETTES["Night"]
     window.close()
+
+
+def test_kept_layers_draw_the_same_as_fresh_ones(qapp):
+    from citygen import qt_render
+    from citygen.model import Model
+
+    model = Model(15, 5, walls=True, river=True, coast=True, fields=True,
+                  forests=True, orchards=True)
+    palette = PALETTES["Default"]
+    kept = {}
+    first = qt_render.prepare(model, palette, kept)
+    assert set(kept) <= qt_render.FIXED_LAYERS and "Forest" in kept
+    again = qt_render.prepare(model, palette, kept)
+    fresh = qt_render.prepare(model, palette)
+    assert len(first) == len(again) == len(fresh)
+    for (a, _, _), (b, _, _) in zip(again, fresh):
+        assert a == b

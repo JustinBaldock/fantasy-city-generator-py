@@ -10,6 +10,7 @@ from PySide6.QtGui import (
     QKeySequence,
     QPainter,
     QPen,
+    QPixmap,
     QPolygonF,
     QShortcut,
     QTransform,
@@ -63,6 +64,10 @@ SELECTED_COLOUR = "#2f7de1"
 HANDLE_PIXELS = 7  # How close the pointer must be to grab a wall corner.
 EDGE_PIXELS = 4  # How close to grab a stretch of wall and add a corner.
 
+# The drawn map is kept in a picture this much bigger than the window on each
+# side, so small pans and hovering don't draw the whole map again.
+CACHE_MARGIN = 0.25
+
 MIN_ZOOM = 0.3
 MAX_ZOOM = 40.0
 
@@ -99,11 +104,17 @@ class MapView(QWidget):
         self.moving = None
         self.moving_corner = None
         self.pending_edge = None
+        self._version = 0
+        self._kept_layers = {}
+        self._cache = None
+        self._cache_key = None
+        self._cache_pan = QPointF(0, 0)
         self.move_start = None
 
     def set_city(self, model, palette, editor=None, reset_view=True):
         self.model = model
         self.palette_colours = palette
+        self._kept_layers = {}
         if editor is not self.editor:
             self.editor = editor
             self.select(None)
@@ -113,7 +124,9 @@ class MapView(QWidget):
 
     def refresh(self):
         """Redraw the city after something on it has changed."""
-        self.prepared = qt_render.prepare(self.model, self.palette_colours)
+        self.prepared = qt_render.prepare(self.model, self.palette_colours,
+                                          self._kept_layers)
+        self._version += 1
         self.update()
 
     def set_edit_mode(self, on):
@@ -153,14 +166,53 @@ class MapView(QWidget):
 
         colours = self.palette_colours
         painter.fillRect(self.rect(), QColor(colours.paper))
+        picture, x, y = self._map_picture()
+        painter.drawPixmap(QPointF(x, y), picture)
         painter.setTransform(self._transform())
-        qt_render.paint(painter, self.prepared)
         if self.edit_mode and self.editor is not None:
             self._paint_edit_marks(painter)
         painter.resetTransform()
 
         if self.hover_text:
             self._paint_label(painter, colours)
+
+    def _map_picture(self):
+        """The drawn map, and where in the window its corner goes.
+
+        It's drawn again only when the map, the zoom or the window size
+        changes, or a pan goes past the spare edge. While something is being
+        dragged the map changes every move, so it gets no spare edge then.
+        """
+        dragging = self.moving is not None or self.moving_corner is not None
+        margin = 0 if dragging else CACHE_MARGIN
+        width = self.width()
+        height = self.height()
+        spare_x = round(width * margin)
+        spare_y = round(height * margin)
+        ratio = self.devicePixelRatioF()
+        key = (self._version, self.zoom, width, height, ratio, spare_x,
+               spare_y)
+        if self._cache is not None and key == self._cache_key:
+            dx = self.pan.x() - self._cache_pan.x()
+            dy = self.pan.y() - self._cache_pan.y()
+            if abs(dx) <= spare_x and abs(dy) <= spare_y:
+                return self._cache, dx - spare_x, dy - spare_y
+
+        picture = QPixmap(round((width + 2 * spare_x) * ratio),
+                          round((height + 2 * spare_y) * ratio))
+        picture.setDevicePixelRatio(ratio)
+        picture.fill(QColor(self.palette_colours.paper))
+        painter = QPainter(picture)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.translate(spare_x, spare_y)
+        painter.setTransform(self._transform(), True)
+        qt_render.paint(painter, self.prepared)
+        painter.end()
+
+        self._cache = picture
+        self._cache_key = key
+        self._cache_pan = QPointF(self.pan)
+        return picture, -spare_x, -spare_y
 
     def _paint_edit_marks(self, painter):
         def outline(building):
