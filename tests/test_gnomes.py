@@ -104,7 +104,7 @@ def test_the_option_is_off_unless_asked_for():
 
 @pytest.mark.parametrize("options", OPTIONS)
 def test_homes_have_some_rooms_but_never_a_full_ring(options):
-    model = Model(gnome_homes=True, **options)
+    model = Model(home_style="gnome", **options)
     homes = homes_in(model)
     assert homes
     assert all(1 <= len(home.joins) <= max(gnomes.ROOMS) for _, home in homes)
@@ -113,7 +113,7 @@ def test_homes_have_some_rooms_but_never_a_full_ring(options):
 
 @pytest.mark.parametrize("options", OPTIONS)
 def test_gnome_homes_only_go_in_wards_where_people_live(options):
-    model = Model(gnome_homes=True, **options)
+    model = Model(home_style="gnome", **options)
     for patch in model.patches:
         if not is_home_ward(patch.ward):
             assert not any(isinstance(b, GnomeHome)
@@ -133,7 +133,7 @@ def is_rectangle(building):
 
 @pytest.mark.parametrize("options", OPTIONS)
 def test_home_wards_hold_only_homes_and_true_rectangles(options):
-    model = Model(gnome_homes=True, **options)
+    model = Model(home_style="gnome", **options)
     for patch in model.patches:
         ward = patch.ward
         if is_home_ward(ward):
@@ -142,7 +142,7 @@ def test_home_wards_hold_only_homes_and_true_rectangles(options):
 
 
 def test_a_gnome_city_still_has_plenty_of_rectangles():
-    model = Model(gnome_homes=True, size=24, seed=21)
+    model = Model(home_style="gnome", size=24, seed=21)
     wards = [p.ward for p in model.patches if p.ward.homes]
     buildings = [b for ward in wards for b in built_on(ward)]
     rectangles = [b for b in buildings if is_rectangle(b)]
@@ -153,7 +153,7 @@ def test_merchants_have_more_shops_than_craftsmen_have_workshops():
     def share(ward_type):
         buildings = [
             b for seed in range(1, 13)
-            for p in Model(gnome_homes=True, size=24, seed=seed).patches
+            for p in Model(home_style="gnome", size=24, seed=seed).patches
             if type(p.ward) is ward_type for b in built_on(p.ward)]
         return sum(map(is_rectangle, buildings)) / len(buildings)
 
@@ -163,7 +163,7 @@ def test_merchants_have_more_shops_than_craftsmen_have_workshops():
 def test_government_and_military_buildings_are_all_rectangles():
     found = 0
     for seed in range(1, 13):
-        model = Model(gnome_homes=True, size=24, seed=seed)
+        model = Model(home_style="gnome", size=24, seed=seed)
         for patch in model.patches:
             if isinstance(patch.ward, (AdministrationWard, MilitaryWard)):
                 found += len(patch.ward.geometry)
@@ -177,7 +177,7 @@ def farms_of(model):
 
 def test_farms_have_one_home_and_often_a_barn():
     wards = [ward for seed in range(1, 7)
-             for ward in farms_of(Model(gnome_homes=True, size=15, seed=seed))
+             for ward in farms_of(Model(home_style="gnome", size=15, seed=seed))
              if ward.geometry]
     assert wards
     for ward in wards:
@@ -190,7 +190,7 @@ def test_farms_have_one_home_and_often_a_barn():
 
 def test_barns_clear_their_farmhouses_and_stay_on_their_land():
     for seed in range(1, 7):
-        for ward in farms_of(Model(gnome_homes=True, size=15, seed=seed,
+        for ward in farms_of(Model(home_style="gnome", size=15, seed=seed,
                                    coast=True)):
             if len(ward.geometry) == 2:
                 home, barn = ward.geometry
@@ -200,7 +200,7 @@ def test_barns_clear_their_farmhouses_and_stay_on_their_land():
 
 
 def test_temples_keep_their_landmarks():
-    model = Model(gnome_homes=True, size=15, seed=5, temple=True)
+    model = Model(home_style="gnome", size=15, seed=5, temple=True)
     wards = [p.ward for p in model.patches if isinstance(p.ward, Cathedral)]
     assert wards
     for ward in wards:
@@ -210,7 +210,7 @@ def test_temples_keep_their_landmarks():
 
 @pytest.mark.parametrize("options", OPTIONS)
 def test_buildings_stay_in_their_plots_and_plots_in_their_blocks(options):
-    model = Model(gnome_homes=True, **options)
+    model = Model(home_style="gnome", **options)
     for patch in model.patches:
         ward = patch.ward
         if isinstance(ward, Farm) or not (ward.homes or ward.rectangle_share):
@@ -224,7 +224,7 @@ def test_buildings_stay_in_their_plots_and_plots_in_their_blocks(options):
 
 @pytest.mark.parametrize("options", OPTIONS)
 def test_buildings_do_not_touch_each_other(options):
-    model = Model(gnome_homes=True, **options)
+    model = Model(home_style="gnome", **options)
     buildings = [b for p in model.patches if is_home_ward(p.ward)
                  or p.ward.rectangle_share for b in built_on(p.ward)]
     for i, a in enumerate(buildings):
@@ -237,7 +237,7 @@ def test_buildings_do_not_touch_each_other(options):
 @pytest.mark.parametrize("options", OPTIONS)
 def test_the_option_leaves_the_city_around_the_homes_alone(options):
     ordinary = export.city_to_dict(Model(**options))
-    gnome = export.city_to_dict(Model(gnome_homes=True, **options))
+    gnome = export.city_to_dict(Model(home_style="gnome", **options))
     for key in ("streets", "roads", "wall", "castle_wall", "river", "bridges",
                 "shore", "center", "city_radius"):
         assert ordinary[key] == gnome[key]
@@ -248,8 +248,8 @@ def test_the_option_leaves_the_city_around_the_homes_alone(options):
 
 
 def test_a_seed_always_gives_the_same_homes():
-    first = Model(gnome_homes=True, size=15, seed=7)
-    second = Model(gnome_homes=True, size=15, seed=7)
+    first = Model(home_style="gnome", size=15, seed=7)
+    second = Model(home_style="gnome", size=15, seed=7)
     assert export.city_to_dict(first) == export.city_to_dict(second)
 
 
@@ -291,7 +291,7 @@ def walls_of(model):
 
 
 def test_each_room_gets_a_wall_on_the_map():
-    model = Model(gnome_homes=True, size=15, seed=7)
+    model = Model(home_style="gnome", size=15, seed=7)
     assert len(walls_of(model)) == sum(
         len(home.joins) for _, home in homes_in(model))
 
@@ -301,7 +301,7 @@ def test_burgage_maps_have_no_room_walls():
 
 
 def test_room_walls_show_in_the_svg():
-    model = Model(gnome_homes=True, size=15, seed=7)
+    model = Model(home_style="gnome", size=15, seed=7)
     assert 'id="room-walls"' in export.city_to_svg(model, PALETTE)
     assert 'id="room-walls"' not in export.city_to_svg(
         Model(size=15, seed=7), PALETTE)
@@ -309,9 +309,9 @@ def test_room_walls_show_in_the_svg():
 
 def test_the_json_says_which_homes_it_has(tmp_path):
     path = tmp_path / "city.json"
-    export.save_json(Model(gnome_homes=True, size=9, seed=3), path)
-    assert json.loads(path.read_text())["gnome_homes"] is True
-    assert export.city_to_dict(Model(size=9, seed=3))["gnome_homes"] is False
+    export.save_json(Model(home_style="gnome", size=9, seed=3), path)
+    assert json.loads(path.read_text())["home_style"] == "gnome"
+    assert export.city_to_dict(Model(size=9, seed=3))["home_style"] == "burgage"
 
 
 def home_in_editor(editor):
@@ -321,7 +321,7 @@ def home_in_editor(editor):
 
 
 def test_clicking_a_room_selects_its_home():
-    editor = CityEditor(Model(gnome_homes=True, size=15, seed=7))
+    editor = CityEditor(Model(home_style="gnome", size=15, seed=7))
     building = home_in_editor(editor)
     home = building.polygon.house
     a, _ = home.joins[0]
@@ -331,7 +331,7 @@ def test_clicking_a_room_selects_its_home():
 
 
 def test_a_home_moves_whole_and_its_rooms_go_with_it():
-    editor = CityEditor(Model(gnome_homes=True, size=15, seed=7))
+    editor = CityEditor(Model(home_style="gnome", size=15, seed=7))
     building = home_in_editor(editor)
     home = building.polygon.house
     before = [(a.x, a.y, b.x, b.y) for a, b in home.room_walls()]
@@ -357,7 +357,7 @@ def test_a_home_moves_whole_and_its_rooms_go_with_it():
 
 
 def test_a_locked_home_stays_put():
-    editor = CityEditor(Model(gnome_homes=True, size=15, seed=7))
+    editor = CityEditor(Model(home_style="gnome", size=15, seed=7))
     building = home_in_editor(editor)
     editor.set_locked(building, True)
     assert not editor.begin_move(building)

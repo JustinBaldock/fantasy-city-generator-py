@@ -124,8 +124,8 @@ def test_most_houses_front_a_street_or_lane():
 
 @pytest.mark.parametrize("options", OPTIONS)
 def test_both_kinds_of_home_have_plots(options):
-    for gnome_homes in (False, True):
-        model = Model(gnome_homes=gnome_homes, **options)
+    for style in ("burgage", "gnome"):
+        model = Model(home_style=style, **options)
         assert plots_in(model)
 
 
@@ -219,3 +219,38 @@ def test_pushed_plots_carry_their_houses():
         assert flat((v.x, v.y) for v in other.polygon.house) == pytest.approx(
             flat((px + dx, py + dy) for px, py in corners))
     assert pushed
+
+
+@pytest.mark.parametrize("options", OPTIONS)
+def test_classic_houses_fill_their_plots_with_no_borders(options):
+    model = Model(home_style="classic", **options)
+    assert not plots_in(model)
+    layers = {layer.name: layer for layer in build_layers(model, PALETTE)}
+    assert layers["Plots"].polygons == []
+    assert layers["Buildings"].polygons
+    assert all(plot is None for ward in export.city_to_dict(model)["wards"]
+               for plot in ward["plots"])
+
+
+@pytest.mark.parametrize("options", OPTIONS)
+def test_every_home_style_keeps_the_same_streets_walls_and_water(options):
+    maps = [export.city_to_dict(Model(home_style=style, **options))
+            for style in ("burgage", "gnome", "classic")]
+    for key in ("streets", "roads", "wall", "castle_wall", "river", "shore"):
+        assert maps[0][key] == maps[1][key] == maps[2][key]
+    assert ([w["shape"] for w in maps[0]["wards"]]
+            == [w["shape"] for w in maps[2]["wards"]])
+
+
+def test_classic_plots_are_smaller_than_burgage_plots():
+    def homes(style):
+        return sum(len(p.ward.geometry) for p in
+                   Model(home_style=style, size=15, seed=7).patches
+                   if p.ward.homes)
+
+    assert homes("classic") > homes("burgage")
+
+
+def test_an_unknown_home_style_is_refused():
+    with pytest.raises(ValueError):
+        Model(size=9, seed=3, home_style="elvish")

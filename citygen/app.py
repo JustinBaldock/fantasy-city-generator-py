@@ -422,12 +422,14 @@ class MainWindow(QMainWindow):
         self.roads_box.addItem("Two roads", False)
         self.roads_box.setToolTip("How many roads lead out of town")
         self.homes_box = QComboBox()
-        self.homes_box.addItem("Burgage plots", False)
-        self.homes_box.addItem("Gnome", True)
+        self.homes_box.addItem("Burgage plots", "burgage")
+        self.homes_box.addItem("Gnome", "gnome")
+        self.homes_box.addItem("Classic", "classic")
         self.homes_box.setToolTip(
             "Burgage plots have the house at the street front and a garden "
             "behind. Gnome homes are hexagons with square rooms off their "
-            "sides, among rectangular shops, stores and barns.")
+            "sides, among rectangular shops, stores and barns. Classic "
+            "houses fill their plots, as on the original generator.")
         features = (("Walls", self.walls_box),
                     ("Castle", self.citadel_box),
                     ("Plaza", self.plaza_box),
@@ -570,7 +572,7 @@ class MainWindow(QMainWindow):
                 sea=None if self.sea_box.value() < 0 else self.sea_box.value(),
                 fields=self.fields_box.currentData(),
                 forests=self.forests_box.currentData(),
-                gnome_homes=self.homes_box.currentData(),
+                home_style=self.homes_box.currentData(),
             )
         except GenerationError as error:
             QMessageBox.warning(self, APP_NAME, str(error))

@@ -53,6 +53,15 @@ def test_homes_can_be_switched_to_gnome_homes_and_back(window):
     assert gnome_homes() == 0
 
 
+def test_classic_homes_have_no_plots(window):
+    window.homes_box.setCurrentIndex(2)
+    assert window.homes_box.currentText() == "Classic"
+    assert window.model.home_style == "classic"
+    assert not any(hasattr(building, "house")
+                   for patch in window.model.patches
+                   for building in patch.ward.geometry)
+
+
 def test_hovering_names_the_ward(window):
     view = window.view
     patch = labelled_patch(window.model)

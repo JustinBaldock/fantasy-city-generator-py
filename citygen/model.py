@@ -44,6 +44,7 @@ MAX_SIZE = 40
 DEFAULT_SIZE = 15
 MAX_SEED = 2147483646
 MAX_ATTEMPTS = 500
+HOME_STYLES = ("burgage", "gnome", "classic")
 
 # The order wards are handed out in, lightly shuffled for each city.
 WARDS = [
@@ -90,9 +91,10 @@ class Model:
     hub False keeps only two roads out of town. sea is the compass bearing of
     the coast in degrees, or None to leave it to the seed.
 
-    gnome_homes True builds gnome homes. Otherwise homes are burgage plots,
-    with the house at the street front and a garden behind. It is never left
-    to the seed.
+    home_style is one of HOME_STYLES. "burgage" puts each house at the street
+    front of its plot with a garden behind, "gnome" builds gnome homes, and
+    "classic" fills each plot with its house, as the original does. It is
+    never left to the seed.
 
     coast, river, hub and the water's shape use their own random numbers, so
     a city with no water is built exactly as the original would build it.
@@ -101,7 +103,9 @@ class Model:
     def __init__(self, size=DEFAULT_SIZE, seed=-1, walls=None, citadel=None,
                  plaza=None, temple=None, greens=None, coast=None, river=None,
                  hub=True, sea=None, fields=None, forests=None,
-                 gnome_homes=False):
+                 home_style="burgage"):
+        if home_style not in HOME_STYLES:
+            raise ValueError(f"Unknown home style {home_style!r}")
         if seed > 0:
             rng.reset(seed)
         else:
@@ -113,7 +117,7 @@ class Model:
         self.temple_option = temple
         self.greens_option = greens
         self.hub = hub
-        self.gnome_homes = gnome_homes
+        self.home_style = home_style
 
         self.features = random.Random(seed)
         coast_roll = self.features.random() < COAST_CHANCE
@@ -449,9 +453,9 @@ class Model:
     def _build_geometry(self):
         for patch in self.patches:
             patch.ward.create_geometry()
-        if self.gnome_homes:
+        if self.home_style == "gnome":
             gnomes.build_gnome_homes(self)
-        else:
+        elif self.home_style == "burgage":
             plots.build_burgage_plots(self)
         if self.shore:
             water.build_piers(self)

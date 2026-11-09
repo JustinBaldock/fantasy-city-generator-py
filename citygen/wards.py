@@ -20,9 +20,9 @@ MAIN_STREET = 2.0
 REGULAR_STREET = 1.0
 ALLEY = 0.6
 
-# Added to a ward's plot size where people live, since a house now stands in
-# its plot with open ground round it. Gnome homes need the space to show their
-# shape, and burgage plots for their gardens.
+# Added to a ward's plot size where people live, since a house stands in its
+# plot with open ground round it. Gnome homes need the space to show their
+# shape, and burgage plots for their gardens. Classic houses fill their plots.
 GNOME_PLOT = 30
 BURGAGE_PLOT = 40
 
@@ -107,9 +107,10 @@ class Ward:
 
     label = None
     rate_location = None
-    homes = False  # Whether people live here, in gnome homes on request.
+    homes = False  # Whether people live here, in houses that have plots.
     # With gnome homes, the share of plots that are plain squares and
     # rectangles instead: shops, workshops, stores and government buildings.
+    # Above 0, the ward's buildings also get plots in a burgage town.
     rectangle_share = 0.0
 
     def __init__(self, model, patch):
@@ -125,7 +126,8 @@ class Ward:
     def plot_bonus(self):
         if not self.homes:
             return 0
-        return GNOME_PLOT if self.model.gnome_homes else BURGAGE_PLOT
+        return {"gnome": GNOME_PLOT, "burgage": BURGAGE_PLOT}.get(
+            self.model.home_style, 0)
 
     def get_city_block(self):
         model = self.model
