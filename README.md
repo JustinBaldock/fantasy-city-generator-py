@@ -39,7 +39,9 @@ Roads and streets react to the buildings. Move a building onto one and it bends 
 
 Wheat fields are the furrowed farm plots around town, each two to three times the size of an orchard.
 
-Orchards are farm plots with their trees in neat rows, each with a faint hedge round it. Where an orchard takes the place of a wheat field, the field's land makes two or three orchards. They take some of the plots beside farmhouses, and the higher farmland near town that is too steep for fields. Turning orchards on or off leaves the other fields where they were, and forests keep out of them.
+Orchards are farm plots with their trees in neat rows, each with a faint hedge round it. Where an orchard takes the place of a wheat field, the field's land makes two or three orchards.
+
+The drop-down beside Orchards sets how much of the farmland is orchard: 1:10, 1:8 or 1:4, orchard to wheat field by area. Orchards go nearest the farmhouses first. The fields are big, so a map lands near the ratio rather than on it. With Orchards off the farmland is all wheat fields, and with Wheat fields off the orchards take the plots beside farmhouses and the higher farmland near town instead. They take some of the plots beside farmhouses, and the higher farmland near town that is too steep for fields. Turning orchards on or off leaves the other fields where they were, and forests keep out of them.
 
 ## Plots and burgage plots
 
