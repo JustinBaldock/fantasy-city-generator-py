@@ -16,6 +16,7 @@ This is an unofficial Python port of [TownGeneratorOS](https://github.com/watabo
 - [Editing a map](#editing-a-map)
 - [Exporting and importing](#exporting-and-importing)
 - [How it differs from the website](#how-it-differs-from-the-website)
+- [Fantasy Location Generator](#fantasy-location-generator)
 - [For developers](#for-developers)
 - [Licence](#licence)
 
@@ -28,6 +29,8 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python -m citygen
 ```
+
+The same folder has a second app for single remote places, the [Fantasy Location Generator](#fantasy-location-generator). Double-click `Fantasy Location Generator.command`, or run `.venv/bin/python -m sitegen`.
 
 ## Making a map
 
@@ -180,6 +183,45 @@ The website's building shadows, district names, grid and compass aren't in this 
 
 The same seed won't give the same map here as on the website. The site's generator has changed since this code was published, and the port also differs from the original in small ways, such as the order roads are searched in.
 
+## Fantasy Location Generator
+
+A separate app for one place out in the country: a remote farm, a toll house on a turnpike road, or a roadhouse inn at a crossroads. It draws with the city generator's own styles, so its buildings, roads, fields, orchards, woods and water look just like those round a town. Every piece can then be moved, turned, resized and reshaped, alone or several at once.
+
+```bash
+.venv/bin/python -m sitegen
+```
+
+### Making a location
+
+Choose a Kind and press Return, or New location, for a new one. The same seed always gives the same location.
+
+| Kind | What it has |
+| --- | --- |
+| Farm | A farmyard by the road with a farmhouse, shed, barn, byre and well, an orchard behind it, a paddock with a pond, and wheat fields, meadows, hedges and woods all round |
+| Toll house | A toll house and its garden beside the road, with a toll gate across the road. Usually the road crosses a river on a bridge there, and otherwise a track joins it |
+| Roadhouse | An inn at a crossroads or a junction, round a yard with its stables, coach house and well, a garden with trees next door, sometimes a brewhouse, and a paddock across the road |
+
+Homes sets whether the main house is a plain building or a gnome home. Each location is laid out on a grid of fields whose corners wander, then turned to a random heading. A location is about 400 metres across.
+
+### Editing
+
+Everything on the map is a piece you can change. Hover over one to see what it is.
+
+- **Select** a piece by clicking it. Shift-click (or Ctrl-click, or Cmd-click on a Mac) adds a piece to the selection or takes it off. Drag across open ground to select everything inside the box. Ctrl+A selects everything, and Esc selects nothing.
+- **Move** the selection by dragging it, or nudge it with the arrow keys, ten times as far with Shift.
+- **Turn** the selection by dragging the round handle above it. Holding Shift snaps to 15 degrees. The [ and ] keys, and the Turn buttons, turn it 15 degrees at a time, and Shift+[ and Shift+] turn it by one degree. Several pieces turn together round their middle.
+- **Resize** a single piece by dragging the square handles on its box. The side across from the handle stays put. A tree or well's handles change its size.
+- **Reshape** an area such as a field, yard, wood or building with Reshape, R, or by double-clicking it. Its corners then show, ready to drag. Double-click an edge to add a corner, and right-click a corner to remove it. Roads, tracks, rivers, hedges, walls, bridges and gates always show their points, so you can drag their bends straight away, add a bend by double-clicking the line, and remove one with a right click.
+- **Add** a piece with the Add buttons. It appears in the middle of the view, selected, ready to move.
+- **Delete** the selection with Delete or Backspace, or the Delete button.
+- **Pan** by dragging with the right or middle mouse button, or with Space held down. Scroll to zoom, and double-click open ground to reset the view.
+
+A wheat field's furrows run along its longest edge, and an orchard's trees stand in rows, so both follow the field as you turn or reshape it. A wood fills itself with trees the same way.
+
+### Saving and exporting
+
+Save keeps the location in a JSON file, every piece exactly where you left it, and Open brings it back to carry on editing. The file records the version of the app that saved it. PNG and SVG export the map with the scale bar, in any of the city generator's styles. The app asks before a new location replaces changes you haven't saved.
+
 ## For developers
 
 ### How it's organised
@@ -205,6 +247,12 @@ The same seed won't give the same map here as on the website. The site's generat
 | `citygen/qt_render.py` | Drawing with Qt, and PNG |
 | `citygen/editing.py` | Moving and locking buildings, and reshaping walls |
 | `citygen/app.py` | The desktop app |
+| `sitegen/site.py` | A location and its pieces, each with an outline in its own frame and a position and angle |
+| `sitegen/generate.py` | Laying out farms, toll houses and roadhouses |
+| `sitegen/drawing.py` | A location's pieces as the city's layers |
+| `sitegen/editing.py` | Picking, moving, turning, resizing and reshaping pieces |
+| `sitegen/files.py` | Saving and opening locations, and SVG and PNG |
+| `sitegen/app.py` | The location generator's window |
 
 `rng.py`, `geometry.py`, `voronoi.py`, `cutter.py`, `patch.py`, `walls.py`, `topology.py`, `wards.py` and `model.py` follow the original's structure, with small additions for the new features. The other modules are this port's own. Where the original's behaviour looks like a mistake but shapes the maps, the port keeps it and says so in a comment. `Polygon.distance` is the main example.
 
@@ -214,6 +262,7 @@ The same seed won't give the same map here as on the website. The site's generat
 - The features added in this port draw their own random numbers, seeded from the map's seed, rather than taking from the original's sequence. Turning one on or off leaves the rest of the map alone, and Classic homes still give the original's layout.
 - Roads and streets are worked out from the buildings each time the map is drawn, so they follow every edit and undo without being saved anywhere.
 - Importing makes a town again from its settings and then moves its walls, roads and buildings to match the file, rather than rebuilding it from the coordinates alone. This keeps the town fully editable. `citygen/__init__.py` holds the app's version, which goes in every export. Bump it when a change could make the same settings give a different town.
+- The location generator reuses the city's drawing, export, countryside and gnome home code rather than copying it. A location is a flat list of pieces. Each keeps its shape in its own frame, so moving or turning one never changes its shape, and furrows, orchard rows and wood trees are worked out from each piece when it's drawn.
 - The window keeps the drawn map with a spare edge round it, so hovering and small pans don't redraw it, and big layers are drawn in small tiles, which Qt fills much faster.
 
 ### Tests
