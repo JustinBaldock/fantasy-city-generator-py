@@ -39,8 +39,10 @@ from .editing import CityEditor
 from .geometry import GenerationError, Point
 from .layers import PALETTES, map_extent
 from .model import (
+    DEFAULT_FIELD_RATIO,
     DEFAULT_ORCHARD_RATIO,
     DEFAULT_SIZE,
+    FIELD_RATIOS,
     MAX_TEMPLES,
     MAX_SEED,
     MAX_SIZE,
@@ -560,6 +562,14 @@ class MainWindow(QMainWindow):
             ORCHARD_RATIOS.index(DEFAULT_ORCHARD_RATIO))
         self.orchard_ratio_box.setToolTip(
             "Orchards to wheat fields, by area, where there are both")
+        self.field_ratio_box = QComboBox()
+        for ratio in FIELD_RATIOS:
+            label = f"{ratio:g}:1" if ratio >= 1 else f"1:{round(1 / ratio)}"
+            self.field_ratio_box.addItem(label, ratio)
+        self.field_ratio_box.setCurrentIndex(
+            FIELD_RATIOS.index(DEFAULT_FIELD_RATIO))
+        self.field_ratio_box.setToolTip(
+            "Wheat fields to wards of the town, from a farming town to very few")
         self.temple_count_box = QComboBox()
         for count in range(1, MAX_TEMPLES + 1):
             self.temple_count_box.addItem(str(count), count)
@@ -593,7 +603,8 @@ class MainWindow(QMainWindow):
         self.feature_boxes = [box for _, box in features]
         # Settings that go with a feature sit beside it, on the same row.
         beside = {self.orchards_box: self.orchard_ratio_box,
-                  self.temple_box: self.temple_count_box}
+                  self.temple_box: self.temple_count_box,
+                  self.fields_box: self.field_ratio_box}
         for extra in beside.values():
             self.feature_boxes.append(extra)
             extra.currentIndexChanged.connect(self.build)
@@ -613,6 +624,9 @@ class MainWindow(QMainWindow):
         self.temple_box.currentIndexChanged.connect(
             lambda: self.temple_count_box.setEnabled(
                 self.temple_box.currentData() is not False))
+        self.fields_box.currentIndexChanged.connect(
+            lambda: self.field_ratio_box.setEnabled(
+                self.fields_box.currentData() is not False))
 
         self.sea_box = QSpinBox()
         self.sea_box.setRange(-1, 359)
@@ -749,6 +763,7 @@ class MainWindow(QMainWindow):
                 orchards=self.orchards_box.currentData(),
                 orchard_ratio=self.orchard_ratio_box.currentData(),
                 temples=self.temple_count_box.currentData(),
+                field_ratio=self.field_ratio_box.currentData(),
                 home_style=self.homes_box.currentData(),
             )
         except GenerationError as error:

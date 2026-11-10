@@ -49,6 +49,9 @@ HOME_STYLES = ("burgage", "gnome", "classic")
 ORCHARD_RATIOS = (10, 8, 4)
 DEFAULT_ORCHARD_RATIO = 8
 MAX_TEMPLES = 10
+# Wheat fields for each ward of the town, from a farming town to very few.
+FIELD_RATIOS = (4, 3, 2, 1, 1 / 3, 1 / 4)
+DEFAULT_FIELD_RATIO = 1
 
 # The order wards are handed out in, lightly shuffled for each city.
 WARDS = [
@@ -113,7 +116,8 @@ class Model:
                  plaza=None, temple=None, greens=None, coast=None, river=None,
                  hub=True, sea=None, fields=None, forests=None,
                  home_style="burgage", orchards=None,
-                 orchard_ratio=DEFAULT_ORCHARD_RATIO, temples=1):
+                 orchard_ratio=DEFAULT_ORCHARD_RATIO, temples=1,
+                 field_ratio=DEFAULT_FIELD_RATIO):
         if home_style not in HOME_STYLES:
             raise ValueError(f"Unknown home style {home_style!r}")
         if seed > 0:
@@ -152,6 +156,9 @@ class Model:
             raise ValueError(f"A town has 1 to {MAX_TEMPLES} temples, "
                              f"not {temples}")
         self.temple_count = temples
+        if field_ratio <= 0:
+            raise ValueError(f"Field ratio must be positive, not {field_ratio}")
+        self.field_ratio = field_ratio
         self.sea_direction = water.direction_from_bearing(self.sea_bearing)
 
         # Drawn even when forced, so that forcing one leaves the rest alike.

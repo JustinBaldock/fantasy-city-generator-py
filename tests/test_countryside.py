@@ -229,3 +229,46 @@ def test_orchards_by_ratio_go_nearest_the_farmhouses():
 def test_a_ratio_must_be_positive():
     with pytest.raises(ValueError):
         Model(size=9, seed=3, orchard_ratio=0)
+
+
+@pytest.mark.parametrize("ratio", [4, 3, 2, 1, 1 / 3, 1 / 4])
+def test_wheat_fields_follow_their_ratio_to_wards(ratio):
+    model = Model(size=30, seed=1, fields=True, orchards=False,
+                  field_ratio=ratio)
+    assert len(model.fields) == max(1, round(ratio * model.size))
+
+
+def test_more_fields_than_land_takes_all_the_land_there_is():
+    from citygen import countryside
+
+    model = Model(size=15, seed=1, fields=True, orchards=False,
+                  field_ratio=4)
+    available = sum(
+        len(countryside._farm_plots(p.ward, countryside.WHEAT_FIELD) or [])
+        for p in countryside._land_patches(model)
+        if type(p.ward) in (countryside.Ward, countryside.Farm))
+    assert len(model.fields) < 4 * model.size
+    assert len(model.fields) >= available * 0.9
+
+
+def test_a_farming_town_has_more_fields_than_a_quiet_one():
+    counts = [len(Model(size=24, seed=5, fields=True, orchards=False,
+                        field_ratio=ratio).fields)
+              for ratio in (4, 2, 1, 1 / 4)]
+    assert counts == sorted(counts, reverse=True)
+    assert counts[0] > 4 * counts[-1]
+
+
+def test_few_fields_keep_close_to_town():
+    model = Model(size=24, seed=5, fields=True, orchards=False,
+                  field_ratio=1 / 4)
+    from citygen import countryside
+    from_city = countryside._distance_from_city(model)
+    few = max(from_city(p.centroid) for p in model.fields)
+    many = Model(size=24, seed=5, fields=True, orchards=False, field_ratio=4)
+    assert few < max(from_city(p.centroid) for p in many.fields)
+
+
+def test_a_field_ratio_must_be_positive():
+    with pytest.raises(ValueError):
+        Model(size=9, seed=3, field_ratio=0)

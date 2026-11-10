@@ -3,7 +3,10 @@
 This module is original to this port. The published source leaves the land
 around a city empty, so these are our own methods.
 
-The fields are wheat fields, two to three times the size of an orchard.
+The fields are wheat fields, two to three times the size of an orchard. The
+model's field_ratio says how many there are for each ward of the town. They
+take the land nearest the city first, low ground before hills, and stop when
+there are enough or the land in view runs out.
 With fields, orchards take a share of the farmland set by the model's
 orchard_ratio, one part orchard to that many parts wheat, starting nearest
 the farmhouses. Without fields, they take some of the plots beside the
@@ -45,6 +48,8 @@ LONE_TREE_RADIUS = (1.4, 2.2)
 
 ORCHARD_SHARE = 0.6  # Of the plots nearest a farmhouse, when it has any.
 HILL_ORCHARDS = 0.6  # The share of the higher farmland that is orchard.
+# Wheat fields go on hills only after low ground this much further out.
+HILL_DISTANCE = 0.3  # In city radii.
 ORCHARD_REACH = 25.0  # How far from its farmhouse an orchard can be.
 ORCHARD_CHANCE = 0.5  # Of a farm having an orchard at all.
 ORCHARD_SPACING = 3.0  # Between trees in a row, and between the rows.
@@ -347,6 +352,42 @@ def _plant_hill_orchards(model, hill_plots):
             ward.label = "Orchard"
 
 
+def _fields_by_ratio(model, height, top, from_city):
+    """The farmland for field_ratio wheat fields to each ward of the town.
+
+    Land nearest the city goes first, and low ground before hills unless the
+    hills are much nearer. Returns (ward, fields) for each ward used.
+    """
+    wanted = max(1, round(model.field_ratio * model.size))
+    hill_cost = model.city_radius * HILL_DISTANCE
+    land = []
+    for patch in _land_patches(model):
+        ward = patch.ward
+        if type(ward) not in (Ward, Farm):
+            continue
+        center = patch.shape.center
+        cost = from_city(center)
+        if height(center.x, center.y) > top:
+            cost += hill_cost
+        land.append((cost, ward))
+    land.sort(key=lambda item: item[0])
+
+    chosen = []
+    count = 0
+    for _, ward in land:
+        if count >= wanted:
+            break
+        plots = _farm_plots(ward, WHEAT_FIELD)
+        if not plots:
+            continue
+        # The last ward used gives only the fields nearest the city.
+        plots.sort(key=lambda plot: from_city(plot.centroid))
+        plots = plots[:wanted - count]
+        chosen.append((ward, plots))
+        count += len(plots)
+    return chosen
+
+
 def _build_fields(model, height):
     from_city = _distance_from_city(model)
     reach = model.city_radius * FIELD_REACH
@@ -354,19 +395,22 @@ def _build_fields(model, height):
     farm_plots = []
     hills = []
 
-    for patch in _land_patches(model):
-        ward = patch.ward
-        if type(ward) not in (Ward, Farm):
-            continue
-        center = patch.shape.center
-        if from_city(center) > reach:
-            continue
-        if height(center.x, center.y) > top:
-            hills.append(ward)
-            continue
-        plots = _farm_plots(ward, WHEAT_FIELD)
-        if plots is not None:
-            farm_plots.append((ward, plots))
+    if model.fields_needed:
+        farm_plots = _fields_by_ratio(model, height, top, from_city)
+    else:
+        for patch in _land_patches(model):
+            ward = patch.ward
+            if type(ward) not in (Ward, Farm):
+                continue
+            center = patch.shape.center
+            if from_city(center) > reach:
+                continue
+            if height(center.x, center.y) > top:
+                hills.append(ward)
+                continue
+            plots = _farm_plots(ward, WHEAT_FIELD)
+            if plots is not None:
+                farm_plots.append((ward, plots))
 
     if model.orchards_needed and model.fields_needed:
         left = _orchards_by_ratio(model, farm_plots)

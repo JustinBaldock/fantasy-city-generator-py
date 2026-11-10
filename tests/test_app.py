@@ -100,6 +100,23 @@ def test_the_temple_count_sits_beside_temple(window):
     assert not box.isEnabled()
 
 
+def test_the_field_ratio_sits_beside_wheat_fields(window):
+    box = window.field_ratio_box
+    assert [box.itemText(i) for i in range(box.count())] == [
+        "4:1", "3:1", "2:1", "1:1", "1:3", "1:4"]
+    assert box.currentText() == "1:1"
+    assert box.parentWidget() is window.fields_box.parentWidget()
+
+    window.fields_box.setCurrentIndex(1)
+    box.setCurrentIndex(0)
+    assert window.model.field_ratio == 4
+    box.setCurrentIndex(5)
+    assert window.model.field_ratio == pytest.approx(0.25)
+
+    window.fields_box.setCurrentIndex(2)
+    assert not box.isEnabled()
+
+
 def test_classic_homes_have_no_plots(window):
     window.homes_box.setCurrentIndex(2)
     assert window.homes_box.currentText() == "Classic"
