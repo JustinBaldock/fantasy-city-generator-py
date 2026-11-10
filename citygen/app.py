@@ -41,6 +41,7 @@ from .layers import PALETTES, map_extent
 from .model import (
     DEFAULT_ORCHARD_RATIO,
     DEFAULT_SIZE,
+    MAX_TEMPLES,
     MAX_SEED,
     MAX_SIZE,
     MIN_SIZE,
@@ -559,6 +560,11 @@ class MainWindow(QMainWindow):
             ORCHARD_RATIOS.index(DEFAULT_ORCHARD_RATIO))
         self.orchard_ratio_box.setToolTip(
             "Orchards to wheat fields, by area, where there are both")
+        self.temple_count_box = QComboBox()
+        for count in range(1, MAX_TEMPLES + 1):
+            self.temple_count_box.addItem(str(count), count)
+        self.temple_count_box.setToolTip(
+            "How many temples the town has, when it has any")
         self.roads_box = QComboBox()
         self.roads_box.addItem("All gates", True)
         self.roads_box.addItem("Two roads", False)
@@ -585,22 +591,28 @@ class MainWindow(QMainWindow):
                     ("Roads", self.roads_box),
                     ("Homes", self.homes_box))
         self.feature_boxes = [box for _, box in features]
-        self.feature_boxes.append(self.orchard_ratio_box)
-        self.orchard_ratio_box.currentIndexChanged.connect(self.build)
+        # Settings that go with a feature sit beside it, on the same row.
+        beside = {self.orchards_box: self.orchard_ratio_box,
+                  self.temple_box: self.temple_count_box}
+        for extra in beside.values():
+            self.feature_boxes.append(extra)
+            extra.currentIndexChanged.connect(self.build)
         for label, box in features:
             box.currentIndexChanged.connect(self.build)
-            if box is self.orchards_box:
-                # The ratio sits beside Orchards, on the same row.
+            if box in beside:
                 row = QWidget()
                 row_layout = QHBoxLayout(row)
                 row_layout.setContentsMargins(0, 0, 0, 0)
                 row_layout.addWidget(box, 1)
-                row_layout.addWidget(self.orchard_ratio_box)
+                row_layout.addWidget(beside[box])
                 city_layout.addRow(label, row)
             else:
                 city_layout.addRow(label, box)
         self.orchards_box.currentIndexChanged.connect(self._orchards_changed)
         self.fields_box.currentIndexChanged.connect(self._orchards_changed)
+        self.temple_box.currentIndexChanged.connect(
+            lambda: self.temple_count_box.setEnabled(
+                self.temple_box.currentData() is not False))
 
         self.sea_box = QSpinBox()
         self.sea_box.setRange(-1, 359)
@@ -736,6 +748,7 @@ class MainWindow(QMainWindow):
                 forests=self.forests_box.currentData(),
                 orchards=self.orchards_box.currentData(),
                 orchard_ratio=self.orchard_ratio_box.currentData(),
+                temples=self.temple_count_box.currentData(),
                 home_style=self.homes_box.currentData(),
             )
         except GenerationError as error:

@@ -8,7 +8,7 @@ from .plots import Plot
 from .streets import ways
 from .model import size_name
 
-JSON_FORMAT_VERSION = 10
+JSON_FORMAT_VERSION = 11
 
 
 def _xy(polygon):
@@ -75,6 +75,7 @@ def city_to_dict(model):
         "trees": [[round(x, 2), round(y, 2), round(r, 2)]
                   for x, y, r in model.trees],
         "orchard_ratio": model.orchard_ratio,
+        "temple_count": model.temple_count,
         "orchards": [_xy(plot) for plot in model.orchards],
         "orchard_trees": [[round(x, 2), round(y, 2), round(r, 2)]
                           for x, y, r in model.orchard_trees],

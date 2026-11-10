@@ -24,6 +24,8 @@ ALLEY = 0.6
 # plot with open ground round it. Gnome homes need the space to show their
 # shape, and burgage plots for their gardens. Classic houses fill their plots.
 GNOME_PLOT = 30
+
+TEMPLES_APART = 1e12  # Added to the rating of a patch beside another temple.
 BURGAGE_PLOT = 40
 
 
@@ -433,8 +435,16 @@ class Cathedral(Ward):
     def rate_location(model, patch):
         # Ideally overlooking the plaza, otherwise as close as possible.
         if model.plaza is not None and patch.shape.borders(model.plaza.shape):
-            return -1 / patch.shape.square
-        return patch.shape.distance(_plaza_or_center(model)) * patch.shape.square
+            rate = -1 / patch.shape.square
+        else:
+            rate = (patch.shape.distance(_plaza_or_center(model))
+                    * patch.shape.square)
+        # This port's addition for towns with several temples: one goes next
+        # to another only when there's nowhere else.
+        if any(isinstance(p.ward, Cathedral) and p.shape.borders(patch.shape)
+               for p in model.inner):
+            rate += TEMPLES_APART
+        return rate
 
 
 class Castle(Ward):

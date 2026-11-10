@@ -111,3 +111,53 @@ def test_land_outside_the_city_has_no_label():
     model = Model(15, 42)
     assert any(type(p.ward) is Ward and p.ward.label is None
                for p in model.patches)
+
+
+def temples_in(model):
+    from citygen.wards import Cathedral
+    return [p for p in model.patches if isinstance(p.ward, Cathedral)]
+
+
+@pytest.mark.parametrize("count", [1, 2, 5, 10])
+def test_a_town_gets_the_temples_asked_for(count):
+    assert len(temples_in(Model(24, 7, temple=True, temples=count))) == count
+
+
+def test_a_small_town_gets_as_many_temples_as_it_has_room_for():
+    model = Model(8, 7, temple=True, temples=10)
+    temples = temples_in(model)
+    assert 1 <= len(temples) < 10
+    others = [p for p in model.inner if p not in temples]
+    from citygen.wards import GateWard, Market
+    assert all(isinstance(p.ward, (GateWard, Market)) for p in others)
+
+
+def test_temples_keep_apart_where_there_is_room():
+    model = Model(24, 7, temple=True, temples=4)
+    temples = temples_in(model)
+    for i, a in enumerate(temples):
+        for b in temples[i + 1:]:
+            assert not a.shape.borders(b.shape)
+
+
+def test_no_temple_means_none_whatever_the_count():
+    assert not temples_in(Model(15, 7, temple=False, temples=6))
+
+
+def test_left_to_the_seed_temples_come_all_together_or_not_at_all():
+    for seed in range(1, 13):
+        found = len(temples_in(Model(15, seed, temples=3)))
+        assert found in (0, 3)
+
+
+def test_one_temple_leaves_the_town_as_it_was():
+    from citygen.export import city_to_dict
+    plain = city_to_dict(Model(15, 7))
+    one = city_to_dict(Model(15, 7, temples=1))
+    assert plain == one
+
+
+@pytest.mark.parametrize("count", [0, 11])
+def test_temple_counts_stay_in_range(count):
+    with pytest.raises(ValueError):
+        Model(9, 3, temples=count)

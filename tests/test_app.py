@@ -80,6 +80,26 @@ def test_the_orchard_ratio_sits_beside_orchards_and_rebuilds(window):
     assert not box.isEnabled()
 
 
+def test_the_temple_count_sits_beside_temple(window):
+    from citygen.wards import Cathedral
+
+    box = window.temple_count_box
+    assert [box.itemText(i) for i in range(box.count())] == [
+        str(n) for n in range(1, 11)]
+    assert box.currentText() == "1"
+    assert box.parentWidget() is window.temple_box.parentWidget()
+
+    window.size_box.setValue(24)
+    window.temple_box.setCurrentIndex(1)
+    box.setCurrentIndex(3)
+    assert window.model.temple_count == 4
+    assert sum(isinstance(p.ward, Cathedral)
+               for p in window.model.patches) == 4
+
+    window.temple_box.setCurrentIndex(2)
+    assert not box.isEnabled()
+
+
 def test_classic_homes_have_no_plots(window):
     window.homes_box.setCurrentIndex(2)
     assert window.homes_box.currentText() == "Classic"
