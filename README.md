@@ -35,6 +35,10 @@ Each road carries on through its gate as the main street to the centre of town. 
 
 Roads and streets react to the buildings. Move a building onto one and it bends smoothly round it, cutting across gardens if it needs to, and it straightens again when the building moves off or the move is undone. Where houses stand close on both sides, as they do along most streets in town, there's no room to bend, and the moved building stands over the way instead. Buildings that haven't been moved never bend a way.
 
+## Greens
+
+Greens are open parkland with trees spaced round the inside of their edges, leaving a few gaps. The trees move with the green when you move it.
+
 ## Orchards
 
 Wheat fields are the furrowed farm plots around town, each two to three times the size of an orchard.
