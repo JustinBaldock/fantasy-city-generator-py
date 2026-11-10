@@ -4,6 +4,7 @@ The screen, PNG and SVG all draw from these layers, so they match. Nothing in
 this module needs Qt.
 """
 
+import math
 from dataclasses import dataclass, field
 
 from . import streets
@@ -26,6 +27,11 @@ from .wards import (
     PatriciateWard,
     Slum,
 )
+
+# The real size of a map unit, for the scale bar. The original gives none.
+# At 4 metres a main street is 8 m across and a burgage plot about 28 m by
+# 48 m, which suits a medieval town.
+METRES_PER_UNIT = 4.0
 
 NORMAL_STROKE = 0.3
 THICK_STROKE = 1.8
@@ -268,4 +274,27 @@ def build_layers(model, palette):
 
 def map_extent(model):
     """How far the map reaches from its centre, in map units."""
-    return model.city_radius * 1.1
+    return getattr(model, "view_radius", model.city_radius * 1.1)
+
+
+def scale_bar(units_per_length, most):
+    """The longest round length that fits a scale bar, and its size.
+
+    units_per_length is how many drawing units, such as pixels, a map unit
+    takes, and most is the most drawing units the bar may take. Returns the
+    length in metres, as 1, 2 or 5 times a power of ten, and its size in
+    drawing units.
+    """
+    metres = most / units_per_length * METRES_PER_UNIT
+    power = 10 ** math.floor(math.log10(metres))
+    for step in (5, 2, 1):
+        if step * power <= metres:
+            length = step * power
+            break
+    return length, length / METRES_PER_UNIT * units_per_length
+
+
+def scale_label(metres):
+    if metres >= 1000:
+        return f"{metres / 1000:g} km"
+    return f"{metres:g} m"

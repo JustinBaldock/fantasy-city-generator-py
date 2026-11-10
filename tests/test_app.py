@@ -14,6 +14,9 @@ def window(qapp):
     window = MainWindow()
     window.resize(1000, 800)
     window.show()
+    # A fixed seed, so the tests see the same town every run.
+    window._set_seed(7)
+    window.build()
     QApplication.processEvents()
     yield window
     window.close()
@@ -115,6 +118,15 @@ def test_the_field_ratio_sits_beside_wheat_fields(window):
 
     window.fields_box.setCurrentIndex(2)
     assert not box.isEnabled()
+
+
+def test_the_scale_bar_can_be_turned_off(window):
+    assert window.view.show_scale_bar
+    window.scale_bar_action.setChecked(False)
+    assert not window.view.show_scale_bar
+    window.view.repaint()
+    window.scale_bar_action.setChecked(True)
+    assert window.view.show_scale_bar
 
 
 def test_classic_homes_have_no_plots(window):

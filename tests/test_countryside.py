@@ -238,19 +238,6 @@ def test_wheat_fields_follow_their_ratio_to_wards(ratio):
     assert len(model.fields) == max(1, round(ratio * model.size))
 
 
-def test_more_fields_than_land_takes_all_the_land_there_is():
-    from citygen import countryside
-
-    model = Model(size=15, seed=1, fields=True, orchards=False,
-                  field_ratio=4)
-    available = sum(
-        len(countryside._farm_plots(p.ward, countryside.WHEAT_FIELD) or [])
-        for p in countryside._land_patches(model)
-        if type(p.ward) in (countryside.Ward, countryside.Farm))
-    assert len(model.fields) < 4 * model.size
-    assert len(model.fields) >= available * 0.9
-
-
 def test_a_farming_town_has_more_fields_than_a_quiet_one():
     counts = [len(Model(size=24, seed=5, fields=True, orchards=False,
                         field_ratio=ratio).fields)
@@ -272,3 +259,35 @@ def test_few_fields_keep_close_to_town():
 def test_a_field_ratio_must_be_positive():
     with pytest.raises(ValueError):
         Model(size=9, seed=3, field_ratio=0)
+
+
+@pytest.mark.parametrize("ratio", [4, 3, 2])
+def test_farming_towns_always_get_their_fields(ratio):
+    for seed in range(1, 6):
+        model = Model(size=15, seed=seed, fields=True, orchards=False,
+                      field_ratio=ratio)
+        assert len(model.fields) == round(ratio * model.size)
+
+
+def test_the_view_grows_to_show_far_fields():
+    from citygen.layers import map_extent
+
+    usual = Model(size=15, seed=2, fields=True, field_ratio=1)
+    farming = Model(size=15, seed=2, fields=True, field_ratio=4)
+    assert map_extent(usual) == pytest.approx(usual.city_radius * 1.1)
+    assert map_extent(farming) > map_extent(usual) * 1.4
+    for plot in farming.fields:
+        for v in plot:
+            assert max(abs(v.x), abs(v.y)) < map_extent(farming)
+
+
+def test_forests_fill_a_wider_view():
+    model = Model(size=15, seed=2, fields=True, field_ratio=4, forests=True)
+    usual_edge = model.city_radius * 1.1 * 1.3
+    assert any(max(abs(x), abs(y)) > usual_edge for x, y, _ in model.trees)
+
+
+def test_farmland_keeps_off_the_sea():
+    model = Model(size=15, seed=4, fields=True, field_ratio=4, coast=True)
+    for plot in model.fields:
+        assert model.seaward(plot.centroid) < 0

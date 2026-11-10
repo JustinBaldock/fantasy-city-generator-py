@@ -1,3 +1,4 @@
+import pytest
 import json
 import xml.etree.ElementTree as ET
 
@@ -92,3 +93,33 @@ def test_kept_layers_draw_the_same_as_fresh_ones(qapp):
     assert len(first) == len(again) == len(fresh)
     for (a, _, _), (b, _, _) in zip(again, fresh):
         assert a == b
+
+
+def test_scale_bars_use_round_lengths():
+    from citygen.layers import METRES_PER_UNIT, scale_bar, scale_label
+
+    metres, size = scale_bar(10.0, 160)
+    assert metres == 50
+    assert size == pytest.approx(50 / METRES_PER_UNIT * 10)
+    assert scale_bar(1.0, 300)[0] == 1000
+    assert scale_label(1000) == "1 km"
+    assert scale_label(200) == "200 m"
+
+
+def test_the_svg_has_a_scale_bar_unless_left_out():
+    model = walled_city()
+    palette = PALETTES["Default"]
+    assert 'id="scale-bar"' in export.city_to_svg(model, palette)
+    assert 'id="scale-bar"' not in export.city_to_svg(
+        model, palette, show_scale_bar=False)
+
+
+def test_the_png_scale_bar_can_be_left_out(tmp_path, qapp):
+    from PySide6.QtGui import QImage
+
+    model = walled_city()
+    with_bar = tmp_path / "with.png"
+    without = tmp_path / "without.png"
+    qt_render.save_png(model, PALETTES["Default"], with_bar, 600)
+    qt_render.save_png(model, PALETTES["Default"], without, 600, False)
+    assert QImage(str(with_bar)) != QImage(str(without))

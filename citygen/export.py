@@ -3,7 +3,7 @@
 import json
 from xml.sax.saxutils import escape
 
-from .layers import build_layers, map_extent
+from .layers import build_layers, map_extent, scale_bar, scale_label
 from .plots import Plot
 from .streets import ways
 from .model import size_name
@@ -130,7 +130,39 @@ def _style(layer):
     return " ".join(style)
 
 
-def city_to_svg(model, palette, pixels=2000):
+def _svg_scale_bar(extent, palette):
+    """A scale bar in the bottom left corner, in map units."""
+    side = extent * 2
+    metres, length = scale_bar(1.0, side * 0.2)
+    size = side * 0.018
+    height = size * 0.45
+    left = -extent + side * 0.03
+    bottom = extent - side * 0.03
+    top = bottom - height
+    dark = _colour(palette.dark)
+    pad = size * 0.5
+    parts = [f'<rect x="{left - size - pad / 2:.3f}" '
+             f'y="{top - size * 1.3 - pad:.3f}" '
+             f'width="{length + size * 2 + pad * 3:.3f}" '
+             f'height="{height + size * 1.3 + pad * 2:.3f}" rx="{pad:.3f}" '
+             f'fill="{_colour(palette.paper)}" fill-opacity="0.85" '
+             f'stroke="none"/>']
+    for part in range(4):
+        fill = dark if part % 2 == 0 else _colour(palette.paper)
+        parts.append(f'<rect x="{left + length * part / 4:.3f}" '
+                     f'y="{top:.3f}" width="{length / 4:.3f}" '
+                     f'height="{height:.3f}" fill="{fill}"/>')
+    text = (f'font-family="sans-serif" font-size="{size:.3f}" '
+            f'fill="{dark}" stroke="none" text-anchor="middle"')
+    baseline = top - size * 0.3
+    parts.append(f'<text x="{left:.3f}" y="{baseline:.3f}" {text}>0</text>')
+    parts.append(f'<text x="{left + length:.3f}" y="{baseline:.3f}" {text}>'
+                 f'{escape(scale_label(metres))}</text>')
+    return (f'<g id="scale-bar" stroke="{dark}" '
+            f'stroke-width="{size / 12:.3f}">' + "".join(parts) + "</g>")
+
+
+def city_to_svg(model, palette, pixels=2000, show_scale_bar=True):
     extent = map_extent(model)
     side = extent * 2
     lines = [
@@ -153,10 +185,13 @@ def city_to_svg(model, palette, pixels=2000):
         for x, y, r in layer.circles:
             lines.append(f'<circle cx="{x:.3f}" cy="{y:.3f}" r="{r:.3f}"/>')
         lines.append("</g>")
+    if show_scale_bar:
+        lines.append(_svg_scale_bar(extent, palette))
     lines.append("</svg>")
     return "\n".join(lines) + "\n"
 
 
-def save_svg(model, palette, path):
+def save_svg(model, palette, path, show_scale_bar=True):
     with open(path, "w", encoding="utf-8") as file:
-        file.write(city_to_svg(model, palette))
+        file.write(city_to_svg(model, palette,
+                               show_scale_bar=show_scale_bar))

@@ -497,6 +497,8 @@ class Model:
         self.built_at = {}
         if self.shore:
             water.build_piers(self)
+        # How far the map reaches from its centre. Farmland can widen it.
+        self.view_radius = self.city_radius * 1.1
         countryside.build_countryside(self)
         # Where each building stood when the city was built, so the drawing
         # can tell which ones have been moved since.

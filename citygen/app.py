@@ -111,6 +111,7 @@ class MapView(QWidget):
         self.pending_edge = None
         self._version = 0
         self._kept_layers = {}
+        self.show_scale_bar = True
         self._cache = None
         self._cache_key = None
         self._cache_pan = QPointF(0, 0)
@@ -178,6 +179,9 @@ class MapView(QWidget):
             self._paint_edit_marks(painter)
         painter.resetTransform()
 
+        if self.show_scale_bar:
+            qt_render.paint_scale_bar(painter, colours, 16, self.height() - 14,
+                                      self._scale(), 160, 12)
         if self.hover_text:
             self._paint_label(painter, colours)
 
@@ -677,9 +681,20 @@ class MainWindow(QMainWindow):
         action.setShortcut(QKeySequence("Ctrl+0"))
         action.triggered.connect(self.view.reset_view)
         view_menu.addAction(action)
+        self.scale_bar_action = QAction("Scale bar", self)
+        self.scale_bar_action.setCheckable(True)
+        self.scale_bar_action.setChecked(True)
+        self.scale_bar_action.setToolTip(
+            "Show a scale bar on the map and in exports")
+        self.scale_bar_action.toggled.connect(self._scale_bar_toggled)
+        view_menu.addAction(self.scale_bar_action)
 
     def palette(self):
         return PALETTES[self.palette_box.currentText()]
+
+    def _scale_bar_toggled(self, on):
+        self.view.show_scale_bar = on
+        self.view.update()
 
     def _return_pressed(self):
         # Return in the seed or size box means "use what I typed".
@@ -862,13 +877,14 @@ class MainWindow(QMainWindow):
         path = self._ask_path("Export PNG", "png", "PNG image")
         if path:
             self._save(path, lambda: qt_render.save_png(
-                self.model, self.palette(), path, pixels))
+                self.model, self.palette(), path, pixels,
+                self.view.show_scale_bar))
 
     def export_svg(self):
         path = self._ask_path("Export SVG", "svg", "SVG image")
         if path:
             self._save(path, lambda: export.save_svg(
-                self.model, self.palette(), path))
+                self.model, self.palette(), path, self.view.show_scale_bar))
 
     def export_json(self):
         path = self._ask_path("Export JSON", "json", "City data")

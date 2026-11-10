@@ -5,8 +5,9 @@ around a city empty, so these are our own methods.
 
 The fields are wheat fields, two to three times the size of an orchard. The
 model's field_ratio says how many there are for each ward of the town. They
-take the land nearest the city first, low ground before hills, and stop when
-there are enough or the land in view runs out.
+take the land nearest the city first, low ground before hills. A farming
+town can need more land than the usual view shows, so the view then grows
+to take in the farthest field, and the forests fill it.
 With fields, orchards take a share of the farmland set by the model's
 orchard_ratio, one part orchard to that many parts wheat, starting nearest
 the farmhouses. Without fields, they take some of the plots beside the
@@ -165,12 +166,17 @@ class _Ground:
         return self._cell(x, y) not in self.taken
 
 
-def _land_patches(model):
+def _land_patches(model, everywhere=False):
+    """The countryside near enough to show, or all of it that isn't water."""
     limit = model.city_radius * 1.1 * VIEW_MARGIN
     for patch in model.patches:
         center = patch.shape.center
-        if (not patch.within_city and abs(center.x) < limit
-                and abs(center.y) < limit):
+        if patch.within_city:
+            continue
+        if everywhere:
+            if not getattr(patch, "water", False):
+                yield patch
+        elif abs(center.x) < limit and abs(center.y) < limit:
             yield patch
 
 
@@ -361,7 +367,7 @@ def _fields_by_ratio(model, height, top, from_city):
     wanted = max(1, round(model.field_ratio * model.size))
     hill_cost = model.city_radius * HILL_DISTANCE
     land = []
-    for patch in _land_patches(model):
+    for patch in _land_patches(model, everywhere=True):
         ward = patch.ward
         if type(ward) not in (Ward, Farm):
             continue
@@ -468,7 +474,7 @@ def _tree_sites(model):
     """Scattered points on all the open ground, staying off water."""
     features = model.features
     ground = _ground_for_trees(model)
-    limit = model.city_radius * 1.1 * VIEW_MARGIN
+    limit = model.view_radius * VIEW_MARGIN
     rows = int(limit * 2 / TREE_SPACING) + 1
 
     sites = []
@@ -495,7 +501,7 @@ def _build_trees(model, height):
 
     # Going by the open ground in view means a forced forest always shows,
     # even when the terrain's high ground lies under the city.
-    edge = model.city_radius * 1.1
+    edge = model.view_radius
     visible = [s for s in sites if abs(s[0]) < edge and abs(s[1]) < edge]
     levels = sorted(height(x, y) for x, y in visible or sites)
     forest_line = levels[int((1 - FOREST_SHARE) * (len(levels) - 1))]
@@ -512,6 +518,25 @@ def _build_trees(model, height):
         model.trees.append((x, y, radius))
 
 
+VIEW_EDGE = 4.0  # Kept between the farthest field and the edge of the view.
+
+
+def _widen_view(model):
+    """Grow the view to take in every field and orchard, if any lie out
+    past the land a map has always farmed.
+
+    Fields within that land may run off the edge of the view, as they always
+    have, so most maps keep their usual size.
+    """
+    usual = model.view_radius * VIEW_MARGIN
+    plots = model.fields + model.orchards
+    if not any(max(abs(p.centroid.x), abs(p.centroid.y)) > usual
+               for p in plots):
+        return
+    farthest = max(max(abs(v.x), abs(v.y)) for plot in plots for v in plot)
+    model.view_radius = max(model.view_radius, farthest + VIEW_EDGE)
+
+
 def build_countryside(model):
     """Fill the land around the city with fields and forest."""
     if not (model.fields_needed or model.forests_needed
@@ -520,5 +545,6 @@ def build_countryside(model):
     height = _terrain(model)
     if model.fields_needed or model.orchards_needed:
         _build_fields(model, height)
+        _widen_view(model)
     if model.forests_needed:
         _build_trees(model, height)

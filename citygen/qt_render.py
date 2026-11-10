@@ -6,13 +6,14 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QFont,
     QImage,
     QPainter,
     QPainterPath,
     QPen,
 )
 
-from .layers import build_layers, map_extent
+from .layers import build_layers, map_extent, scale_bar, scale_label
 
 # Qt fills many small paths far faster than one huge one, and a forest can
 # have thousands of trees, so its circles are grouped by square of map. Big
@@ -122,7 +123,47 @@ def paint(painter, prepared):
         painter.drawPath(path)
 
 
-def save_png(model, palette, path, pixels=3000):
+def paint_scale_bar(painter, palette, left, bottom, per_unit, most, size):
+    """A scale bar with its bottom left corner at a point, in pixels.
+
+    per_unit is pixels for each map unit, most the longest the bar may be,
+    and size the height of its lettering.
+    """
+    metres, length = scale_bar(per_unit, most)
+    height = size * 0.45
+    top = bottom - height
+    dark = QColor(palette.dark)
+    painter.save()
+    # A pale backing keeps it readable over forest or sea.
+    backing = QColor(palette.paper)
+    backing.setAlpha(215)
+    pad = size * 0.5
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(backing)
+    painter.drawRoundedRect(QRectF(left - size - pad / 2, top - size * 1.3 - pad,
+                                   length + size * 2 + pad * 3,
+                                   height + size * 1.3 + pad * 2),
+                            pad, pad)
+    painter.setPen(QPen(dark, max(1.0, size / 12)))
+    for part in range(4):
+        painter.setBrush(dark if part % 2 == 0 else QColor(palette.paper))
+        painter.drawRect(QRectF(left + length * part / 4, top, length / 4,
+                                height))
+    font = QFont(painter.font())
+    font.setPixelSize(max(6, round(size)))
+    painter.setFont(font)
+    painter.setPen(dark)
+    gap = size * 0.3
+    painter.drawText(QRectF(left - size, top - size - gap, size * 2, size),
+                     Qt.AlignmentFlag.AlignCenter, "0")
+    label = scale_label(metres)
+    painter.drawText(QRectF(left + length - size * 4, top - size - gap,
+                            size * 8, size),
+                     Qt.AlignmentFlag.AlignCenter, label)
+    painter.restore()
+
+
+def save_png(model, palette, path, pixels=3000, show_scale_bar=True):
     image = QImage(pixels, pixels, QImage.Format.Format_RGB32)
     image.fill(QColor(palette.paper))
 
@@ -132,6 +173,11 @@ def save_png(model, palette, path, pixels=3000):
     scale = pixels / (map_extent(model) * 2)
     painter.scale(scale, scale)
     paint(painter, prepare(model, palette))
+    if show_scale_bar:
+        painter.resetTransform()
+        margin = pixels * 0.03
+        paint_scale_bar(painter, palette, margin, pixels - margin, scale,
+                        pixels * 0.2, pixels * 0.018)
     painter.end()
 
     if not image.save(str(path), "PNG"):

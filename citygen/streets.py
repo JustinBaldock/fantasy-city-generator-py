@@ -601,7 +601,8 @@ class _Water:
         self.reach = reach
         self.grid = {}
         # The river runs on far past the map, where no way goes.
-        limit = int(model.city_radius * 2 // CELL) + 1
+        view = getattr(model, "view_radius", model.city_radius * 1.1)
+        limit = int(view * 1.5 // CELL) + 1
         river = [(v.x, v.y) for v in model.river]
         for a, b in zip(river, river[1:]):
             for i in range(
