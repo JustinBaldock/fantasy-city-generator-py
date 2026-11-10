@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
@@ -29,7 +30,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -56,6 +59,8 @@ APP_NAME = "Fantasy City Generator"
 
 # Label, then the smallest and largest size for that kind of settlement.
 SIZE_PRESETS = (
+    ("Hamlet", 1, 2),
+    ("Village", 3, 5),
     ("Small Town", 6, 9),
     ("Large Town", 10, 14),
     ("Small City", 15, 23),
@@ -424,6 +429,22 @@ class MapView(QWidget):
             self.update()
 
 
+# The side panel is never narrower than this.
+MIN_PANEL_WIDTH = 300
+# Pixels between rows of controls, so more of them fit without scrolling.
+FORM_SPACING = 4
+
+
+def _form(parent=None):
+    """A form whose boxes stretch to fill the panel, on every platform."""
+    form = QFormLayout(parent) if parent is not None else QFormLayout()
+    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    form.setLabelAlignment(Qt.AlignmentFlag.AlignRight
+                           | Qt.AlignmentFlag.AlignVCenter)
+    form.setVerticalSpacing(FORM_SPACING)
+    return form
+
+
 class TriState(QComboBox):
     """Random, yes or no, for one feature of the city."""
 
@@ -449,13 +470,19 @@ class MainWindow(QMainWindow):
         self.editor = None
         self.built_state = None
 
-        central = QWidget()
-        layout = QHBoxLayout(central)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(self.view, 1)
-        layout.addWidget(self._build_side_panel())
-        self.setCentralWidget(central)
+        # The map and the controls, with a handle between them to drag the
+        # controls wider.
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(self.view)
+        panel = self._build_side_panel()
+        splitter.addWidget(panel)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([1, panel.minimumWidth()])
+        self.splitter = splitter
+        self.side_panel = panel
+        self.setCentralWidget(splitter)
 
         self._build_menu()
 
@@ -468,23 +495,25 @@ class MainWindow(QMainWindow):
         self.new_map()
 
     def _build_side_panel(self):
-        """The controls, which scroll if the screen is too short for them."""
+        """The controls, which scroll if the screen is too short for them,
+        with the editing and export buttons kept in view below."""
+        controls = self._build_controls()
         scroller = QScrollArea()
-        scroller.setWidget(self._build_controls())
+        scroller.setWidget(controls)
         scroller.setWidgetResizable(True)
         scroller.setFrameShape(QFrame.Shape.NoFrame)
         scroller.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         panel = QWidget()
-        panel.setFixedWidth(256)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 8)
+        layout.setSpacing(4)
         layout.addWidget(scroller, 1)
-        buttons = QVBoxLayout()
-        buttons.setContentsMargins(10, 0, 18, 0)
-        layout.addLayout(buttons)
 
+        edit_box = QGroupBox("Editing")
+        grid = QGridLayout(edit_box)
+        grid.setVerticalSpacing(FORM_SPACING)
         self.edit_button = QPushButton("Edit buildings")
         self.edit_button.setCheckable(True)
         self.edit_button.setToolTip(
@@ -492,27 +521,45 @@ class MainWindow(QMainWindow):
             "right-click to lock it. Drag wall corners and edges to reshape "
             "the walls, and right-click a corner for a tower (E)")
         self.edit_button.toggled.connect(self._edit_toggled)
-        buttons.addWidget(self.edit_button)
-
         self.lock_button = QPushButton("Lock building")
+        self.lock_button.setToolTip("Keep the selected building where it is (L)")
         self.lock_button.clicked.connect(self.toggle_lock)
-        buttons.addWidget(self.lock_button)
-
-        row = QHBoxLayout()
         self.undo_button = QPushButton("Undo move")
+        self.undo_button.setToolTip("Undo the last move (Ctrl+Z)")
         self.undo_button.clicked.connect(self.undo_move)
-        row.addWidget(self.undo_button)
         self.unlock_all_button = QPushButton("Unlock all")
         self.unlock_all_button.clicked.connect(self.unlock_all)
-        row.addWidget(self.unlock_all_button)
-        buttons.addLayout(row)
+        for i, button in enumerate((self.edit_button, self.lock_button,
+                                    self.undo_button, self.unlock_all_button)):
+            grid.addWidget(button, i // 2, i % 2)
 
-        for text, handler in (("Export PNG...", self.export_png),
-                              ("Export SVG...", self.export_svg),
-                              ("Export JSON...", self.export_json)):
+        export_box = QGroupBox("Export")
+        row = QHBoxLayout(export_box)
+        for text, tip, handler in (
+                ("PNG", "Save the map as a picture (Ctrl+E)", self.export_png),
+                ("SVG", "Save the map as a drawing that scales "
+                        "(Ctrl+Shift+E)", self.export_svg),
+                ("JSON", "Save the town to open again later (Ctrl+J)",
+                 self.export_json)):
             button = QPushButton(text)
+            button.setToolTip(tip)
             button.clicked.connect(handler)
-            buttons.addWidget(button)
+            row.addWidget(button)
+
+        for box in (edit_box, export_box):
+            box.setSizePolicy(QSizePolicy.Policy.Preferred,
+                              QSizePolicy.Policy.Fixed)
+            layout.addWidget(box)
+            box.layout().setContentsMargins(8, 4, 8, 4)
+        layout.setContentsMargins(6, 0, 6, 8)
+
+        # Wide enough that nothing in the panel is ever cut off. It can be
+        # dragged wider.
+        scrollbar = scroller.verticalScrollBar().sizeHint().width()
+        width = max(controls.minimumSizeHint().width() + scrollbar,
+                    edit_box.minimumSizeHint().width(),
+                    export_box.minimumSizeHint().width()) + 12
+        panel.setMinimumWidth(max(width, MIN_PANEL_WIDTH))
         return panel
 
     def _build_controls(self):
@@ -524,31 +571,39 @@ class MainWindow(QMainWindow):
         new_button.clicked.connect(self.new_map)
         layout.addWidget(new_button)
 
-        size_box = QGroupBox("Size")
+        size_box = QGroupBox("Map")
         size_layout = QVBoxLayout(size_box)
-        for name, low, high in SIZE_PRESETS:
+        presets = QGridLayout()
+        presets.setVerticalSpacing(FORM_SPACING)
+        for i, (name, low, high) in enumerate(SIZE_PRESETS):
             button = QPushButton(name)
+            wards = f"{low} ward" if low == high == 1 else (
+                f"{low} wards" if low == high else f"{low} to {high} wards")
+            button.setToolTip(f"A new map of {wards}")
             button.clicked.connect(
                 lambda checked=False, a=low, b=high: self.new_preset(a, b))
-            size_layout.addWidget(button)
+            presets.addWidget(button, i // 2, i % 2)
+        size_layout.addLayout(presets)
         self.size_box = QSpinBox()
         self.size_box.setRange(MIN_SIZE, MAX_SIZE)
         self.size_box.setValue(DEFAULT_SIZE)
         self.size_box.setKeyboardTracking(False)
         self.size_box.setToolTip("How many wards sit at the heart of the city")
         self.size_box.valueChanged.connect(self.build)
-        form = QFormLayout()
+        form = _form()
         form.addRow("Wards", self.size_box)
         size_layout.addLayout(form)
         layout.addWidget(size_box)
 
-        city_box = QGroupBox("City")
-        city_layout = QFormLayout(city_box)
+        city_box = QGroupBox("Town")
+        city_layout = _form(city_box)
+        land_box = QGroupBox("Countryside")
+        land_layout = _form(land_box)
         self.seed_box = QSpinBox()
         self.seed_box.setRange(1, MAX_SEED)
         self.seed_box.setKeyboardTracking(False)
         self.seed_box.setToolTip("The same seed and settings give the same map")
-        city_layout.addRow("Seed", self.seed_box)
+        form.addRow("Seed", self.seed_box)
         self.walls_box = TriState()
         self.citadel_box = TriState()
         self.plaza_box = TriState()
@@ -592,19 +647,20 @@ class MainWindow(QMainWindow):
             "behind. Gnome homes are hexagons with square rooms off their "
             "sides, among rectangular shops, stores and barns. Classic "
             "houses fill their plots, as on the original generator.")
-        features = (("Walls", self.walls_box),
-                    ("Castle", self.citadel_box),
-                    ("Plaza", self.plaza_box),
-                    ("Temple", self.temple_box),
-                    ("Greens", self.greens_box),
-                    ("Coast", self.coast_box),
-                    ("River", self.river_box),
-                    ("Wheat fields", self.fields_box),
-                    ("Forests", self.forests_box),
-                    ("Orchards", self.orchards_box),
-                    ("Roads", self.roads_box),
-                    ("Homes", self.homes_box))
-        self.feature_boxes = [box for _, box in features]
+        # Label, control, and which box it goes in.
+        features = (("Homes", self.homes_box, city_layout),
+                    ("Walls", self.walls_box, city_layout),
+                    ("Castle", self.citadel_box, city_layout),
+                    ("Plaza", self.plaza_box, city_layout),
+                    ("Temple", self.temple_box, city_layout),
+                    ("Greens", self.greens_box, city_layout),
+                    ("Roads", self.roads_box, city_layout),
+                    ("Wheat fields", self.fields_box, land_layout),
+                    ("Orchards", self.orchards_box, land_layout),
+                    ("Forests", self.forests_box, land_layout),
+                    ("River", self.river_box, land_layout),
+                    ("Coast", self.coast_box, land_layout))
+        self.feature_boxes = [box for _, box, _ in features]
         # Settings that go with a feature sit beside it, on the same row.
         beside = {self.orchards_box: self.orchard_ratio_box,
                   self.temple_box: self.temple_count_box,
@@ -612,17 +668,20 @@ class MainWindow(QMainWindow):
         for extra in beside.values():
             self.feature_boxes.append(extra)
             extra.currentIndexChanged.connect(self.build)
-        for label, box in features:
+        for label, box, form in features:
             box.currentIndexChanged.connect(self.build)
             if box in beside:
+                extra = beside[box]
+                extra.setSizeAdjustPolicy(
+                    QComboBox.SizeAdjustPolicy.AdjustToContents)
                 row = QWidget()
                 row_layout = QHBoxLayout(row)
                 row_layout.setContentsMargins(0, 0, 0, 0)
                 row_layout.addWidget(box, 1)
-                row_layout.addWidget(beside[box])
-                city_layout.addRow(label, row)
+                row_layout.addWidget(extra)
+                form.addRow(label, row)
             else:
-                city_layout.addRow(label, box)
+                form.addRow(label, box)
         self.orchards_box.currentIndexChanged.connect(self._orchards_changed)
         self.fields_box.currentIndexChanged.connect(self._orchards_changed)
         self.temple_box.currentIndexChanged.connect(
@@ -641,8 +700,9 @@ class MainWindow(QMainWindow):
         self.sea_box.setToolTip(
             "The compass bearing of the sea, 0 for north and 90 for east")
         self.sea_box.valueChanged.connect(self.build)
-        city_layout.addRow("Sea to", self.sea_box)
+        land_layout.addRow("Sea to", self.sea_box)
         layout.addWidget(city_box)
+        layout.addWidget(land_box)
 
         self.palette_box = QComboBox()
         self.palette_box.addItems(PALETTES)

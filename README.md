@@ -31,30 +31,47 @@ python3 -m venv .venv
 
 ## Making a map
 
-### Size and seed
+The controls are down the right of the window, in boxes for the map, the town, the countryside and the style, with the editing and export buttons kept in view below them. Drag the edge between the map and the controls to make the controls wider. If the window is too short for them all, the controls scroll.
+
+### Map size and seed
 
 - Press Return, or New map, for a new map at the same size.
-- Press a size button (Small Town, Large Town, Small City, Large City or Metropolis) for a new map of that kind of settlement, or set the number of wards directly, from 6 to 40.
+- Press a size button for a new map of that kind of settlement, or set the number of wards directly, from 1 to 40.
 - To get a map back, type its seed and press Return.
 
-### City options
+| Size | Wards |
+| --- | --- |
+| Hamlet | 1 or 2 |
+| Village | 3 to 5 |
+| Small Town | 6 to 9 |
+| Large Town | 10 to 14 |
+| Small City | 15 to 23 |
+| Large City | 24 to 39 |
+| Metropolis | 40 |
+
+A hamlet is a farm or two. Its one or two wards hold a few houses, with farmsteads, fields and orchards round them, and it is laid out on as much land as a small town so there is countryside to farm. Hamlets have no plaza, since it would take their only ward, and a hamlet's castle is more of a manor, with its gate opening onto the houses.
+
+### Town and countryside options
 
 Changing any option rebuilds the same seed, so you can see what each one does to the same town. Most can be Random, Yes or No, and Random leaves the choice to the seed.
 
-| Option | What it does |
+| Town | What it does |
 | --- | --- |
+| Homes | Burgage plots, gnome homes or classic houses |
 | Walls | A city wall with towers and gates |
 | Castle | A walled castle, joined to the city wall when there is one |
-| Plaza | An open market square at the centre |
+| Plaza | An open market square at the centre, from 3 wards up |
 | Temple | Temples, with the number beside it setting how many, from 1 to 10 |
 | Greens | Parks with trees round their edges |
-| Coast | The sea along one side of town |
-| River | A river through town, with bridges |
-| Wheat fields | Farmland, with the ratio beside it setting how much |
-| Forests | Woods on the higher ground around town |
-| Orchards | Orchards, with the ratio beside it setting their share of the farmland |
 | Roads | Whether every gate has a road out of town, or only two |
-| Homes | Burgage plots, gnome homes or classic houses |
+
+| Countryside | What it does |
+| --- | --- |
+| Wheat fields | Farmland, with the ratio beside it setting how much |
+| Orchards | Orchards, with the ratio beside it setting their share of the farmland |
+| Forests | Woods on the higher ground around town |
+| River | A river through town, with bridges |
+| Coast | The sea along one side of town |
 | Sea to | The compass bearing of the coast, with 0 for north and 90 for east |
 
 The number and ratios beside Temple, Wheat fields and Orchards are greyed out when they can't apply, such as with Temple set to No.
@@ -157,7 +174,7 @@ This port is based on the source code Watabou published, which stopped being upd
 
 Coasts, rivers, bridges, piers, farm fields, orchards, forests, rounded greens and their trees, temple landmarks and counts, plots, burgage plots, gnome homes, drawn streets, the Roads option, curved road drawing and the scale bar aren't in the published source. They are this project's own work, modelled on what the website's maps show where the site has them, and no code was taken from the website. They won't match it exactly.
 
-Editing buildings and walls, and all the options, are also additions in this port. The published source chose its features only from the seed, and could only show the map on screen.
+Editing buildings and walls, hamlets and villages of fewer than 6 wards, and all the options, are also additions in this port. The published source chose its features only from the seed, and could only show the map on screen.
 
 The website's building shadows, district names, grid and compass aren't in this app.
 

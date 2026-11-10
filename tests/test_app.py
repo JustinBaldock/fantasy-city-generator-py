@@ -386,3 +386,28 @@ def test_hovering_and_small_pans_reuse_the_drawn_map(window, monkeypatch):
     window.palette_box.setCurrentIndex(1)
     view.repaint()
     assert len(calls) == 2
+
+
+def test_the_side_panel_shows_every_control_in_full(window):
+    """Nothing in the panel is cut off, the ratios and counts included."""
+    panel = window.side_panel
+    for box in [window.size_box, window.seed_box, window.sea_box,
+                window.palette_box, window.edit_button, window.lock_button,
+                window.undo_button, window.unlock_all_button,
+                *window.feature_boxes]:
+        right = box.mapTo(panel, QPoint(box.width(), 0)).x()
+        assert right <= panel.width(), box
+        assert box.width() >= box.minimumSizeHint().width(), box
+
+
+def test_the_side_panel_can_be_dragged_wider(window):
+    sizes = window.splitter.sizes()
+    window.splitter.setSizes([sizes[0] - 100, sizes[1] + 100])
+    QApplication.processEvents()
+    assert window.side_panel.width() > sizes[1]
+
+
+def test_a_hamlet_can_be_made_from_the_window(window):
+    window.size_box.setValue(MIN_SIZE)
+    assert MIN_SIZE == 1
+    assert window.model.size == 1
