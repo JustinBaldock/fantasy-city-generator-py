@@ -21,12 +21,19 @@ def length(line):
 
 @pytest.mark.parametrize("options", OPTIONS)
 def test_nothing_bends_on_a_map_nobody_has_edited(options):
+    """Every drawn point lies on a way as the city laid it out."""
     model = Model(**options)
     roads, side, _ = streets.ways(model)
-    assert roads == streets._main_ways(model)
-    drawn = streets._Roads(roads)
-    assert side == [piece for line in streets._side_streets(model)
-                    for piece in streets.trim(line, drawn)]
+    ends = streets._bridge_ends(model)
+    main = [streets.onto_bridges(line, ends)
+            for line in streets._main_ways(model)]
+    plain = [streets.onto_bridges(line, ends)
+             for line in streets._side_streets(model)]
+    plain += streets._bridge_links(model, ends, main + plain)
+    for drawn, laid_out in ((roads, main), (side, plain)):
+        for line in drawn:
+            for point in line:
+                assert streets._nearest_on(laid_out, point)[1] < 1e-6
 
 
 @pytest.mark.parametrize("options", OPTIONS)
@@ -34,10 +41,9 @@ def test_roads_carry_on_through_town_to_the_centre(options):
     model = Model(**options)
     roads, _, _ = streets.ways(model)
     drawn = {point for road in roads for point in road}
-    for street in model.streets:
-        assert all((v.x, v.y) in drawn for v in street)
-    for road in model.roads:
-        assert all((v.x, v.y) in drawn for v in road)
+    for line in list(model.streets) + list(model.roads):
+        assert all((v.x, v.y) in drawn for v in line
+                   if v not in model.bridge_points)
 
 
 @pytest.mark.parametrize("options", OPTIONS)
@@ -288,3 +294,60 @@ def test_trimming_cuts_a_street_where_it_crosses_a_road():
     assert left[0] == (-10, 0) and right[-1] == (10, 0)
     assert max(x for x, _ in left) == pytest.approx(-streets.ROAD_EDGE, abs=0.01)
     assert min(x for x, _ in right) == pytest.approx(streets.ROAD_EDGE, abs=0.01)
+
+
+RIVER_TOWNS = [dict(size=20, seed=seed, river=True, walls=True)
+               for seed in (7, 3, 11, 5, 9)]
+
+
+def to_line(lines, point):
+    return streets._nearest_on(lines, point)[1]
+
+
+@pytest.mark.parametrize("options", RIVER_TOWNS)
+def test_every_bridge_end_meets_a_road_or_street(options):
+    model = Model(**options)
+    roads, side, _ = streets.ways(model)
+    ways = roads + side
+    for a, b in model.bridges:
+        for end in ((a.x, a.y), (b.x, b.y)):
+            if to_line(ways, end) > 1e-6:
+                # Only where nothing on that bank is near enough to join.
+                assert not any(
+                    math.dist(p, end) < streets.BRIDGE_LINK
+                    and not streets._crosses_river(model, end, p)
+                    for line in ways for p in line)
+
+
+@pytest.mark.parametrize("options", RIVER_TOWNS)
+def test_ways_cross_the_river_only_on_bridges(options):
+    model = Model(**options)
+    roads, side, wall = streets.ways(model)
+    bridges = [[(a.x, a.y), (b.x, b.y)] for a, b in model.bridges]
+    river = [(v.x, v.y) for v in model.river]
+    for line in roads + side + wall:
+        for sample in streets._samples(line):
+            point = sample[:2]
+            if to_line([river], point) < 2.0:
+                assert to_line(bridges, point) < 0.5
+
+
+def test_a_road_over_a_bridge_runs_straight_across_it():
+    model = Model(size=20, seed=11, river=True, walls=True)
+    roads, _, _ = streets.ways(model)
+    crossed = 0
+    for a, b in model.bridges:
+        ends = {(a.x, a.y), (b.x, b.y)}
+        for road in roads:
+            for p, q in zip(road, road[1:]):
+                if {p, q} == ends:
+                    crossed += 1
+    assert crossed >= 1
+
+
+def test_onto_bridges_swaps_a_middle_for_the_ends():
+    ends = {(0.0, 0.0): ((0.0, -4.0), (0.0, 4.0))}
+    assert streets.onto_bridges([(1, -10), (0.0, 0.0), (-1, 10)], ends) == [
+        (1, -10), (0.0, -4.0), (0.0, 4.0), (-1, 10)]
+    assert streets.onto_bridges([(0.0, 0.0), (2, 9)], ends) == [
+        (0.0, 4.0), (2, 9)]

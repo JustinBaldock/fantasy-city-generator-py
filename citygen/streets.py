@@ -6,6 +6,10 @@ outside town, and leaves the streets as the gaps between the wards. Here:
 - Each road carries on through its gate as the main street to the centre.
 - The other gaps between wards in town get a street, drawn as a single line.
 - A street runs just inside the city wall wherever no building is near it.
+- Roads and streets meet bridges end on, so traffic can cross them. A way
+  that crosses the river runs straight over its bridge, a street from a
+  bridge starts at the bridge's end, and a bridge end with no way at it gets
+  a short street to the nearest one on its bank.
 
 All of it is worked out from where the buildings are each time the map is
 drawn. Roads and streets bend smoothly round any building moved onto them,
@@ -21,7 +25,7 @@ import math
 
 from .geometry import Point, chaikin, convex_hull
 from .wards import MAIN_STREET, Market, Ward
-from .water import RIVER_WIDTH
+from .water import BRIDGE_WIDTH, RIVER_WIDTH
 
 ROAD_HALF = MAIN_STREET / 2  # The room a road needs each side of its line.
 STREET_HALF = 0.25  # The same for a street.
@@ -47,6 +51,9 @@ CELL = 8.0
 ROAD_EDGE = MAIN_STREET / 2 + 0.15
 CLIP_STEP = 0.25
 ROAD_ROUNDING = 2  # As the map draws roads.
+
+BRIDGE_LINK = 15.0  # How far a bridge end looks for a way to join.
+LINKED = 0.5  # A way this close to a bridge end already meets it.
 
 
 def _outlines(model):
@@ -386,15 +393,7 @@ def _side_streets(model):
 def _on_water(model, x, y):
     if model.sea is not None and model.sea.contains_point(Point(x, y)):
         return True
-    for a, b in zip(model.river, model.river[1:]):
-        dx = b.x - a.x
-        dy = b.y - a.y
-        length = dx * dx + dy * dy
-        t = ((x - a.x) * dx + (y - a.y) * dy) / length if length else 0.0
-        t = max(0.0, min(1.0, t))
-        if math.hypot(x - a.x - t * dx, y - a.y - t * dy) < RIVER_ROOM:
-            return True
-    return False
+    return _Water.of(model, RIVER_ROOM, bridges=False).covers(x, y)
 
 
 def _wall_streets(model, obstacles):
@@ -511,9 +510,18 @@ def _edge_between(roads, inside, outside):
 
 
 def trim(line, roads):
-    """A street line with the parts on roads taken out, as separate lines."""
+    """A line with the parts that roads covers taken out, as separate lines.
+
+    roads is anything with a covers(x, y) and a grid, such as the roads or
+    the river.
+    """
+    if not _grid_touches(roads.grid, line):
+        return [list(line)]
     points = []
     for a, b in zip(line, line[1:]):
+        if not _segment_touches(roads.grid, a, b):
+            points.append(a)  # Nothing near this stretch to cut it.
+            continue
         steps = max(1, math.ceil(math.dist(a, b) / CLIP_STEP))
         points += [(a[0] + (b[0] - a[0]) * k / steps,
                     a[1] + (b[1] - a[1]) * k / steps) for k in range(steps)]
@@ -522,8 +530,10 @@ def trim(line, roads):
     pieces = []
     current = []
     last_on_road = None
+    covered = False
     for point in points:
         if roads.covers(*point):
+            covered = True
             if current:
                 current.append(_edge_between(roads, point, current[-1]))
                 pieces.append(current)
@@ -537,6 +547,8 @@ def trim(line, roads):
         last_on_road = None
     if current:
         pieces.append(current)
+    if not covered:
+        return [list(line)]
     return [_tidy(piece) for piece in pieces
             if len(piece) >= 2 and _length(piece) > CLIP_STEP]
 
@@ -553,6 +565,194 @@ def _tidy(points):
     return kept
 
 
+def _grid_touches(grid, line):
+    """Whether any square of a grid near a line has something in it."""
+    left = int(min(x for x, _ in line) // CELL)
+    right = int(max(x for x, _ in line) // CELL)
+    top = int(min(y for _, y in line) // CELL)
+    bottom = int(max(y for _, y in line) // CELL)
+    if (right - left + 1) * (bottom - top + 1) > len(grid):
+        return any(left <= i <= right and top <= j <= bottom
+                   for i, j in grid)
+    return any((i, j) in grid for i in range(left, right + 1)
+               for j in range(top, bottom + 1))
+
+
+def _segment_touches(grid, a, b):
+    """Whether any square of a grid along a stretch has something in it."""
+    steps = max(1, math.ceil(math.dist(a, b) / (CELL / 2)))
+    for k in range(steps + 1):
+        x = a[0] + (b[0] - a[0]) * k / steps
+        y = a[1] + (b[1] - a[1]) * k / steps
+        if (int(x // CELL), int(y // CELL)) in grid:
+            return True
+    return False
+
+
+class _Water:
+    """The river, less its bridges, for stopping ways at the water's edge.
+
+    Its pieces are kept in a grid, since every point of every way asks.
+    """
+
+    def __init__(self, model, reach=RIVER_WIDTH / 2, bridges=True):
+        self.bridges = ([((a.x, a.y), (b.x, b.y)) for a, b in model.bridges]
+                        if bridges else [])
+        self.reach = reach
+        self.grid = {}
+        # The river runs on far past the map, where no way goes.
+        limit = int(model.city_radius * 2 // CELL) + 1
+        river = [(v.x, v.y) for v in model.river]
+        for a, b in zip(river, river[1:]):
+            for i in range(
+                    max(-limit, int((min(a[0], b[0]) - reach) // CELL)),
+                    min(limit, int((max(a[0], b[0]) + reach) // CELL)) + 1):
+                for j in range(
+                        max(-limit, int((min(a[1], b[1]) - reach) // CELL)),
+                        min(limit, int((max(a[1], b[1]) + reach) // CELL))
+                        + 1):
+                    if _to_xy_segment((i + 0.5) * CELL, (j + 0.5) * CELL,
+                                      a, b) < reach + CELL:
+                        self.grid.setdefault((i, j), []).append((a, b))
+
+    @staticmethod
+    def of(model, reach=RIVER_WIDTH / 2, bridges=True):
+        """The water for a model, kept on it since the river never moves."""
+        kept = model.__dict__.setdefault("_way_water", {})
+        key = (reach, bridges)
+        if key not in kept:
+            kept[key] = _Water(model, reach, bridges)
+        return kept[key]
+
+    def covers(self, x, y):
+        pieces = self.grid.get((int(x // CELL), int(y // CELL)))
+        if not pieces or not any(_to_xy_segment(x, y, a, b) < self.reach
+                                 for a, b in pieces):
+            return False
+        return not any(_to_xy_segment(x, y, a, b) < BRIDGE_WIDTH / 2
+                       for a, b in self.bridges)
+
+
+def _to_xy_segment(x, y, a, b):
+    dx = b[0] - a[0]
+    dy = b[1] - a[1]
+    length = dx * dx + dy * dy
+    t = ((x - a[0]) * dx + (y - a[1]) * dy) / length if length else 0.0
+    t = max(0.0, min(1.0, t))
+    return math.hypot(x - a[0] - t * dx, y - a[1] - t * dy)
+
+
+def _bridge_ends(model):
+    """Each bridge's middle point, as (x, y), and its two ends."""
+    ends = {}
+    for a, b in model.bridges:
+        middle = ((a.x + b.x) / 2, (a.y + b.y) / 2)
+        ends[middle] = ((a.x, a.y), (b.x, b.y))
+    return ends
+
+
+def _close(p, q):
+    return abs(p[0] - q[0]) < 1e-6 and abs(p[1] - q[1]) < 1e-6
+
+
+def onto_bridges(line, ends):
+    """A way that meets bridges end on, instead of at their middles.
+
+    A way crossing a bridge's middle runs from one end to the other. A way
+    starting or stopping at a bridge's middle starts or stops at the end on
+    its own bank.
+    """
+    out = []
+    for i, point in enumerate(line):
+        bridge = next((pair for middle, pair in ends.items()
+                       if _close(point, middle)), None)
+        if bridge is None:
+            out.append(point)
+            continue
+        before = line[i - 1] if i > 0 else None
+        after = line[i + 1] if i + 1 < len(line) else None
+        first, second = bridge
+        if before is not None:
+            # The end nearer where the way comes from comes first.
+            if math.dist(second, before) < math.dist(first, before):
+                first, second = second, first
+            out.append(first)
+            if after is not None:
+                out.append(second)
+        elif after is not None:
+            near = min(bridge, key=lambda end: math.dist(end, after))
+            out.append(near)
+    return out
+
+
+def _crosses_river(model, a, b):
+    steps = max(1, math.ceil(math.dist(a, b) / CLIP_STEP))
+    reach = RIVER_WIDTH / 2
+    for k in range(1, steps):
+        x = a[0] + (b[0] - a[0]) * k / steps
+        y = a[1] + (b[1] - a[1]) * k / steps
+        for c, d in zip(model.river, model.river[1:]):
+            if _to_segment_xy(x, y, c, d) < reach:
+                return True
+    return False
+
+
+def _to_segment_xy(x, y, a, b):
+    dx = b.x - a.x
+    dy = b.y - a.y
+    length = dx * dx + dy * dy
+    t = ((x - a.x) * dx + (y - a.y) * dy) / length if length else 0.0
+    t = max(0.0, min(1.0, t))
+    return math.hypot(x - a.x - t * dx, y - a.y - t * dy)
+
+
+def _nearest_on(lines, point):
+    """The nearest point on any of the lines, and how far it is."""
+    best = None
+    gap = math.inf
+    for line in lines:
+        for a, b in zip(line, line[1:]):
+            dx = b[0] - a[0]
+            dy = b[1] - a[1]
+            length = dx * dx + dy * dy
+            t = (((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / length
+                 if length else 0.0)
+            t = max(0.0, min(1.0, t))
+            spot = (a[0] + t * dx, a[1] + t * dy)
+            here = math.dist(spot, point)
+            if here < gap:
+                best = spot
+                gap = here
+    return best, gap
+
+
+def _bridge_links(model, ends, lines):
+    """Short streets from bridge ends that no way meets yet."""
+    links = []
+    for first, second in ends.values():
+        for end in (first, second):
+            if any(_close(end, p) for line in lines for p in (line[0],
+                                                               line[-1])):
+                continue
+            spot, gap = _nearest_on(lines, end)
+            if spot is None or gap <= LINKED:
+                continue
+            if gap > BRIDGE_LINK or _crosses_river(model, end, spot):
+                # Look along the ways for the nearest point on this bank.
+                spot = None
+                gap = BRIDGE_LINK
+                for line in lines:
+                    for p in line:
+                        here = math.dist(p, end)
+                        if here < gap and not _crosses_river(model, end, p):
+                            spot = p
+                            gap = here
+                if spot is None:
+                    continue
+            links.append([end, spot])
+    return links
+
+
 def ways(model):
     """Every road and street to draw, as lists of (x, y).
 
@@ -562,10 +762,18 @@ def ways(model):
     outlines = _outlines(model)
     moved = _Obstacles([entry for entry, has_moved in outlines if has_moved])
     everything = _Obstacles([entry for entry, _ in outlines])
-    roads = [bend_around(line, moved, ROAD_HALF, everything)
-             for line in _main_ways(model)]
-    streets = [bend_around(line, moved, STREET_HALF, everything)
-               for line in _side_streets(model)]
+    ends = _bridge_ends(model)
+    main = [onto_bridges(line, ends) for line in _main_ways(model)]
+    side = [onto_bridges(line, ends) for line in _side_streets(model)]
+    side += _bridge_links(model, ends, main + side)
+    # Ways stop at the water's edge unless they're on a bridge.
+    water = _Water.of(model)
+    roads = [piece for line in main
+             for piece in trim(bend_around(line, moved, ROAD_HALF, everything),
+                               water)]
+    streets = [piece for line in side
+               for piece in trim(bend_around(line, moved, STREET_HALF,
+                                             everything), water)]
     # Streets stop at the edge of a road instead of running onto it.
     drawn = _Roads(roads)
     streets = [piece for line in streets for piece in trim(line, drawn)]
