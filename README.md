@@ -22,6 +22,7 @@ python3 -m venv .venv
 - Press a size button for a new map of that kind of settlement, or set the number of wards directly, from 6 to 40.
 - To get a map back, type its seed and press Return.
 - Walls, Castle, Plaza, Temple, Greens, Coast, River, Wheat fields, Forests and Orchards can each be Random, Yes or No. Changing one rebuilds the same seed.
+- The number beside Temple sets how many temples the town has, from 1 to 10. With Temple on Random the seed decides whether there are any, and there are either none or that many. Temples avoid the wards beside another temple where there's room, and a small town gets as many as it has wards for.
 - Sea to sets the compass bearing of the coast, with 0 for north and 90 for east.
 - Roads sets whether every gate has a road, or only two roads lead out of town.
 - Homes switches between burgage plots, gnome homes and classic houses. See below. Changing it keeps the same streets, walls and water.
