@@ -447,6 +447,11 @@ class Cathedral(Ward):
         return rate
 
 
+# Below this many wards, a castle may open where the town meets the country.
+# Bigger towns are built exactly as the original builds them.
+SMALL_TOWN = 6
+
+
 class Castle(Ward):
     label = "Castle"
 
@@ -457,6 +462,14 @@ class Castle(Ward):
             if v in model.shore_points or v in model.river_points
             or any(not p.within_city for p in model.patch_by_vertex(v))
         ]
+        if model.size < SMALL_TOWN and all(v in reserved for v in patch.shape):
+            # A castle beside a town of one or two wards can have no corner
+            # wholly inside the town, so its gate goes where it meets one.
+            reserved = [
+                v for v in reserved
+                if v in model.shore_points or v in model.river_points
+                or not any(p in model.inner for p in model.patch_by_vertex(v))
+            ]
         self.wall = CurtainWall(True, model, [patch], reserved)
 
     def create_geometry(self):

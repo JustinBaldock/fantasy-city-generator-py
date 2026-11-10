@@ -35,12 +35,20 @@ from .wards import (
     MilitaryWard,
     Park,
     PatriciateWard,
+    SMALL_TOWN,
     Slum,
     Ward,
 )
 
-MIN_SIZE = 6
+MIN_SIZE = 1
 MAX_SIZE = 40
+# Towns smaller than SMALL_TOWN are laid out on as many points as a town of
+# that size, so there is still countryside round a hamlet. From that size up
+# the points are the original's, so those towns come out as they always have.
+# Towns smaller than this have no plaza.
+MIN_PLAZA_SIZE = 3
+# How many patches beside a small town are tried for its castle.
+CASTLE_CHOICES = 6
 DEFAULT_SIZE = 15
 MAX_SEED = 2147483646
 MAX_ATTEMPTS = 500
@@ -82,6 +90,10 @@ def spot_of(polygon):
 
 
 def size_name(size):
+    if size < 3:
+        return "Hamlet"
+    if size < 6:
+        return "Village"
     if size < 10:
         return "Small Town"
     if size < 15:
@@ -173,6 +185,10 @@ class Model:
         citadel_roll = rng.chance()
         walls_roll = rng.chance()
         self.plaza_needed = plaza_roll if plaza is None else plaza
+        if size < MIN_PLAZA_SIZE:
+            # A plaza needs houses round it, and would take a hamlet's only
+            # ward.
+            self.plaza_needed = False
         self.citadel_needed = citadel_roll if citadel is None else citadel
         self.walls_needed = walls_roll if walls is None else walls
 
@@ -221,7 +237,7 @@ class Model:
     def _build_patches(self):
         start_angle = rng.random() * 2 * math.pi
         points = []
-        for i in range(self.size * 8):
+        for i in range(max(self.size, SMALL_TOWN) * 8):
             a = start_angle + math.sqrt(i) * 5
             r = 0 if i == 0 else 10 + i * (2 + rng.random())
             points.append(Point(math.cos(a) * r, math.sin(a) * r))
@@ -253,6 +269,19 @@ class Model:
                 patch.within_city = True
                 patch.within_walls = self.walls_needed
                 self.inner.append(patch)
+
+        if self.citadel is not None and self.size < SMALL_TOWN:
+            # Next to a small town, the patch the original picks is seldom
+            # round enough for a castle, so take the roundest beside the town.
+            beside = [
+                patch for patch in land[self.size:self.size + CASTLE_CHOICES]
+                if any(v in town.shape for town in self.inner
+                       for v in patch.shape)
+            ]
+            castle = max(beside, key=lambda p: p.shape.compactness)
+            self.citadel.within_city = False
+            self.citadel = castle
+            castle.within_city = True
 
     def _optimize_junctions(self):
         """Merge vertices that sit very close together."""

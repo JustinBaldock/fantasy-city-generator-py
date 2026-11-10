@@ -29,6 +29,7 @@ def test_different_seeds_give_different_cities():
 
 
 @pytest.mark.parametrize("size, name", [
+    (1, "Hamlet"), (2, "Hamlet"), (3, "Village"), (5, "Village"),
     (6, "Small Town"), (14, "Large Town"), (15, "Small City"),
     (39, "Large City"), (40, "Metropolis"),
 ])
@@ -161,3 +162,37 @@ def test_one_temple_leaves_the_town_as_it_was():
 def test_temple_counts_stay_in_range(count):
     with pytest.raises(ValueError):
         Model(9, 3, temples=count)
+
+
+SMALL_OPTIONS = [
+    dict(),
+    dict(walls=True, citadel=True, river=True, coast=True, fields=True,
+         orchards=True, greens=True, temple=True, temples=3, field_ratio=4),
+    dict(home_style="gnome", walls=False, fields=True, field_ratio=4),
+    dict(home_style="classic", plaza=True),
+]
+
+
+@pytest.mark.parametrize("size", range(1, 6))
+@pytest.mark.parametrize("options", SMALL_OPTIONS)
+def test_hamlets_and_villages_build(size, options):
+    for seed in range(1, 6):
+        model = Model(size=size, seed=seed, **options)
+        assert len(model.inner) == size
+        # There is countryside round even the smallest town.
+        assert any(not p.within_city for p in model.patches)
+
+
+def test_a_hamlet_has_houses_not_just_a_plaza():
+    for seed in range(1, 11):
+        model = Model(size=1, seed=seed, plaza=True)
+        assert model.plaza is None
+        assert model.inner[0].ward.geometry
+
+
+def test_a_hamlet_with_a_castle_has_a_way_in():
+    for seed in range(1, 6):
+        model = Model(size=1, seed=seed, citadel=True, walls=True)
+        castle = model.citadel.ward
+        assert castle.wall.gates
+        assert model.citadel.shape.compactness >= 0.75
