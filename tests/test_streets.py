@@ -1,4 +1,5 @@
 import math
+import os
 
 import pytest
 
@@ -247,7 +248,8 @@ def test_working_out_the_ways_is_quick():
         start = time.perf_counter()
         streets.ways(model)
         best = min(best, time.perf_counter() - start)
-    assert best < 0.5
+    # GitHub's shared machines can be several times slower than a desktop.
+    assert best < (2.0 if os.environ.get("CI") else 0.5)
 
 
 def test_the_json_has_the_ways_as_drawn():
