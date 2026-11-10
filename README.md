@@ -31,7 +31,7 @@ python3 -m venv .venv
 
 ## Roads and streets
 
-Each road carries on through its gate as the main street to the centre of town. The other gaps between wards in town have streets, drawn as single lines. Streets stop at the edge of a road and never cross one. A street also runs just inside the city wall wherever there's room between the wall and the buildings, such as inside a bulge made by pushing the wall out.
+Each road carries on through its gate as the main street to the centre of town. The other gaps between wards in town have streets, drawn as single lines. Streets stop at the edge of a road and never cross one. Roads and streets meet bridges end on, so traffic can cross: a road over the river runs straight across its bridge, streets from a bridge start at its ends, and a bridge end with no way at it gets a short street to the nearest road or street on that bank. Ways otherwise stop at the water's edge. A street also runs just inside the city wall wherever there's room between the wall and the buildings, such as inside a bulge made by pushing the wall out.
 
 Roads and streets react to the buildings. Move a building onto one and it bends smoothly round it, cutting across gardens if it needs to, and it straightens again when the building moves off or the move is undone. Where houses stand close on both sides, as they do along most streets in town, there's no room to bend, and the moved building stands over the way instead. Buildings that haven't been moved never bend a way.
 
