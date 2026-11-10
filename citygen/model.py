@@ -45,6 +45,9 @@ DEFAULT_SIZE = 15
 MAX_SEED = 2147483646
 MAX_ATTEMPTS = 500
 HOME_STYLES = ("burgage", "gnome", "classic")
+# Parts of wheat field to each part of orchard, where there are both.
+ORCHARD_RATIOS = (10, 8, 4)
+DEFAULT_ORCHARD_RATIO = 8
 
 # The order wards are handed out in, lightly shuffled for each city.
 WARDS = [
@@ -108,7 +111,8 @@ class Model:
     def __init__(self, size=DEFAULT_SIZE, seed=-1, walls=None, citadel=None,
                  plaza=None, temple=None, greens=None, coast=None, river=None,
                  hub=True, sea=None, fields=None, forests=None,
-                 home_style="burgage", orchards=None):
+                 home_style="burgage", orchards=None,
+                 orchard_ratio=DEFAULT_ORCHARD_RATIO):
         if home_style not in HOME_STYLES:
             raise ValueError(f"Unknown home style {home_style!r}")
         if seed > 0:
@@ -140,6 +144,9 @@ class Model:
         orchards_roll = (random.Random(f"{seed} orchards option").random()
                          < ORCHARDS_CHANCE)
         self.orchards_needed = orchards_roll if orchards is None else orchards
+        if orchard_ratio <= 0:
+            raise ValueError(f"Orchard ratio must be positive, not {orchard_ratio}")
+        self.orchard_ratio = orchard_ratio
         self.sea_direction = water.direction_from_bearing(self.sea_bearing)
 
         # Drawn even when forced, so that forcing one leaves the rest alike.

@@ -4,8 +4,10 @@ This module is original to this port. The published source leaves the land
 around a city empty, so these are our own methods.
 
 The fields are wheat fields, two to three times the size of an orchard.
-Orchards take some of the farm plots nearest each farmhouse, and the higher
-farmland near town that is too steep for fields. Their trees stand in rows
+With fields, orchards take a share of the farmland set by the model's
+orchard_ratio, one part orchard to that many parts wheat, starting nearest
+the farmhouses. Without fields, they take some of the plots beside the
+farmhouses and the higher farmland near town that is too steep for fields. Their trees stand in rows
 along the plot's longest edge. They use their own random numbers, and the
 higher land is divided after the fields, so turning orchards on or off
 leaves the fields alone.
@@ -259,6 +261,61 @@ def _plant_orchards(model, farm_plots):
     return left
 
 
+def _orchards_by_ratio(model, farm_plots):
+    """Make orchards of one part of the farmland to orchard_ratio parts wheat.
+
+    Fields nearest a farmhouse go first, or nearest the city where there is
+    no farmhouse. Each becomes two or three orchards. Returns the fields
+    left for wheat.
+    """
+    chooser = random.Random(f"{model.seed} orchards")
+    roads = _road_pieces(model)
+    fields = [plot for _, plots in farm_plots for plot in plots]
+    wheat = sum(abs(plot.square) for plot in fields)
+    orchard = 0.0
+    houses = [house for ward, _ in farm_plots if isinstance(ward, Farm)
+              for house in [_farmhouse(ward)] if house is not None]
+    centre = model.center
+
+    def nearness(plot):
+        spot = plot.centroid
+        if houses:
+            near = min(distance(spot, house) for house in houses)
+        else:
+            near = distance(spot, centre)
+        # A little jitter, so that orchards don't always form a ring.
+        return near * chooser.uniform(0.8, 1.25)
+
+    def miss(wheat, orchard):
+        """How far a mix is from the ratio, by how many times over."""
+        if orchard <= 0:
+            return math.inf
+        if wheat <= 0:
+            return math.inf
+        return abs(math.log(wheat / orchard / model.orchard_ratio))
+
+    left = []
+    for field in sorted(fields, key=nearness):
+        # Lanes run between the orchards, so they cover a little less.
+        planted = []
+        for plot in _cut(field, PLOT_SIZE):
+            trees = orchard_rows(plot, chooser, roads=roads)
+            if trees:
+                planted.append((plot, trees))
+        gain = sum(abs(plot.square) for plot, _ in planted)
+        area = abs(field.square)
+        if not planted or (miss(wheat - area, orchard + gain)
+                           >= miss(wheat, orchard)):
+            left.append(field)
+            continue
+        for plot, trees in planted:
+            model.orchards.append(plot)
+            model.orchard_trees += trees
+        wheat -= area
+        orchard += gain
+    return left
+
+
 def _cut(land, size):
     return [plot for plot in create_alleys(land, size, 0.25, 0.3, 0.12)
             if len(plot) >= 3]
@@ -311,7 +368,9 @@ def _build_fields(model, height):
         if plots is not None:
             farm_plots.append((ward, plots))
 
-    if model.orchards_needed:
+    if model.orchards_needed and model.fields_needed:
+        left = _orchards_by_ratio(model, farm_plots)
+    elif model.orchards_needed:
         hill_plots = [(ward, _farm_plots(ward, PLOT_SIZE)) for ward in hills]
         _plant_hill_orchards(
             model, [(w, p) for w, p in hill_plots if p is not None])

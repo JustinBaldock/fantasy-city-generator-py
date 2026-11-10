@@ -39,10 +39,12 @@ from .editing import CityEditor
 from .geometry import GenerationError, Point
 from .layers import PALETTES, map_extent
 from .model import (
+    DEFAULT_ORCHARD_RATIO,
     DEFAULT_SIZE,
     MAX_SEED,
     MAX_SIZE,
     MIN_SIZE,
+    ORCHARD_RATIOS,
     Model,
     size_name,
 )
@@ -550,6 +552,13 @@ class MainWindow(QMainWindow):
         self.fields_box = TriState()
         self.forests_box = TriState()
         self.orchards_box = TriState()
+        self.orchard_ratio_box = QComboBox()
+        for ratio in ORCHARD_RATIOS:
+            self.orchard_ratio_box.addItem(f"1:{ratio}", ratio)
+        self.orchard_ratio_box.setCurrentIndex(
+            ORCHARD_RATIOS.index(DEFAULT_ORCHARD_RATIO))
+        self.orchard_ratio_box.setToolTip(
+            "Orchards to wheat fields, by area, where there are both")
         self.roads_box = QComboBox()
         self.roads_box.addItem("All gates", True)
         self.roads_box.addItem("Two roads", False)
@@ -576,9 +585,22 @@ class MainWindow(QMainWindow):
                     ("Roads", self.roads_box),
                     ("Homes", self.homes_box))
         self.feature_boxes = [box for _, box in features]
+        self.feature_boxes.append(self.orchard_ratio_box)
+        self.orchard_ratio_box.currentIndexChanged.connect(self.build)
         for label, box in features:
             box.currentIndexChanged.connect(self.build)
-            city_layout.addRow(label, box)
+            if box is self.orchards_box:
+                # The ratio sits beside Orchards, on the same row.
+                row = QWidget()
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.addWidget(box, 1)
+                row_layout.addWidget(self.orchard_ratio_box)
+                city_layout.addRow(label, row)
+            else:
+                city_layout.addRow(label, box)
+        self.orchards_box.currentIndexChanged.connect(self._orchards_changed)
+        self.fields_box.currentIndexChanged.connect(self._orchards_changed)
 
         self.sea_box = QSpinBox()
         self.sea_box.setRange(-1, 359)
@@ -657,6 +679,12 @@ class MainWindow(QMainWindow):
         self.seed_box.setValue(seed)
         self.seed_box.blockSignals(False)
 
+    def _orchards_changed(self):
+        """The ratio only matters where there can be orchards and fields."""
+        self.orchard_ratio_box.setEnabled(
+            self.orchards_box.currentData() is not False
+            and self.fields_box.currentData() is not False)
+
     def _control_state(self):
         return ([self.size_box.value(), self.seed_box.value(),
                  self.sea_box.value()],
@@ -707,6 +735,7 @@ class MainWindow(QMainWindow):
                 fields=self.fields_box.currentData(),
                 forests=self.forests_box.currentData(),
                 orchards=self.orchards_box.currentData(),
+                orchard_ratio=self.orchard_ratio_box.currentData(),
                 home_style=self.homes_box.currentData(),
             )
         except GenerationError as error:

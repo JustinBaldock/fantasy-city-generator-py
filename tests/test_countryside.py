@@ -183,3 +183,49 @@ def test_wheat_fields_are_two_to_three_times_an_orchard():
 def test_farmland_is_labelled_wheat_fields():
     model = Model(size=15, seed=7, fields=True, orchards=False)
     assert any(p.ward.label == "Wheat fields" for p in model.patches)
+
+
+def wheat_per_orchard(ratio, seeds=range(1, 11)):
+    import statistics
+
+    mixes = []
+    for seed in seeds:
+        model = Model(size=15, seed=seed, fields=True, orchards=True,
+                      orchard_ratio=ratio)
+        orchard = sum(abs(p.square) for p in model.orchards)
+        wheat = sum(abs(p.square) for p in model.fields)
+        if orchard:
+            mixes.append(wheat / orchard)
+    return statistics.median(mixes)
+
+
+@pytest.mark.parametrize("ratio", [10, 8, 4])
+def test_orchards_take_their_share_of_the_farmland(ratio):
+    assert wheat_per_orchard(ratio) == pytest.approx(ratio, rel=0.35)
+
+
+def test_a_bigger_ratio_means_fewer_orchards():
+    assert wheat_per_orchard(10) > wheat_per_orchard(8) > wheat_per_orchard(4)
+
+
+def test_orchards_by_ratio_go_nearest_the_farmhouses():
+    from citygen import countryside
+
+    model = Model(size=15, seed=3, fields=True, orchards=True,
+                  orchard_ratio=4)
+    houses = [countryside._farmhouse(p.ward) for p in model.patches
+              if isinstance(p.ward, countryside.Farm) and p.ward.geometry]
+    if not houses or not model.orchards:
+        pytest.skip("no farmhouses here")
+
+    def nearest(plot):
+        return min(distance(plot.centroid, h) for h in houses)
+
+    orchards = sorted(nearest(p) for p in model.orchards)
+    fields = sorted(nearest(p) for p in model.fields)
+    assert orchards[len(orchards) // 2] < fields[len(fields) // 2]
+
+
+def test_a_ratio_must_be_positive():
+    with pytest.raises(ValueError):
+        Model(size=9, seed=3, orchard_ratio=0)

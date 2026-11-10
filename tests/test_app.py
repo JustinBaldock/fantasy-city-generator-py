@@ -60,6 +60,26 @@ def test_orchards_can_be_turned_on(window):
     assert not window.model.orchards
 
 
+def test_the_orchard_ratio_sits_beside_orchards_and_rebuilds(window):
+    box = window.orchard_ratio_box
+    assert [box.itemText(i) for i in range(box.count())] == [
+        "1:10", "1:8", "1:4"]
+    assert box.currentText() == "1:8"
+    assert box.parentWidget() is window.orchards_box.parentWidget()
+
+    window.fields_box.setCurrentIndex(1)
+    window.orchards_box.setCurrentIndex(1)
+    box.setCurrentIndex(2)
+    assert window.model.orchard_ratio == 4
+    assert box.isEnabled()
+
+    window.orchards_box.setCurrentIndex(2)
+    assert not box.isEnabled()
+    window.orchards_box.setCurrentIndex(1)
+    window.fields_box.setCurrentIndex(2)
+    assert not box.isEnabled()
+
+
 def test_classic_homes_have_no_plots(window):
     window.homes_box.setCurrentIndex(2)
     assert window.homes_box.currentText() == "Classic"
