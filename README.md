@@ -1,5 +1,7 @@
 # Fantasy City Generator (Python)
 
+[![Tests](https://github.com/JustinBaldock/fantasy-city-generator-py/actions/workflows/tests.yml/badge.svg)](https://github.com/JustinBaldock/fantasy-city-generator-py/actions/workflows/tests.yml)
+
 A desktop app that generates maps of medieval fantasy towns and cities, written in Python with PySide6.
 
 Pick a size and press Return, and you get a new walled town or sprawling city, with streets, wards, homes on their own plots, a castle, temples, greens, farmland, forests, and a coast or river if you want one. Every map comes from a seed, so the same seed and settings always give the same map. You can then move buildings and reshape the walls by hand, and export the result. It runs on your own computer with no web browser and no account.
@@ -203,6 +205,8 @@ The same seed won't give the same map here as on the website. The site's generat
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m pytest
 ```
+
+GitHub runs the tests on every push and pull request, on Linux with Python 3.10, 3.12 and 3.13, and on macOS and Windows with Python 3.12. The badge at the top of this page shows whether the latest run passed, and the Actions tab on GitHub has the details.
 
 ## Licence
 
