@@ -60,10 +60,28 @@ class Plot(Polygon):
         self.house = house
         self.trees = []  # (x, y, radius) for each tree in the garden.
 
-    def shift(self, dx, dy):
+    def carry(self, dx, dy):
         """Move the house and trees, which go wherever the plot goes."""
         self.house[:] = [Point(v.x + dx, v.y + dy) for v in self.house]
         self.trees = [(x + dx, y + dy, r) for x, y, r in self.trees]
+
+
+class Green(Polygon):
+    """A green, with the trees round its edge, which move with it."""
+
+    def __init__(self, points, trees=()):
+        super().__init__(points)
+        self.trees = list(trees)  # (x, y, radius) for each tree.
+
+    def carry(self, dx, dy):
+        self.trees = [(x + dx, y + dy, r) for x, y, r in self.trees]
+
+
+GREEN_TREE_INSET = 1.6  # From a green's edge to the middle of its trees.
+GREEN_TREE_SPACING = 2.8
+GREEN_TREE_JITTER = 0.4
+GREEN_TREE_RADIUS = (0.9, 1.3)
+GREEN_TREE_GAPS = 0.15  # The share of places left without a tree.
 
 
 def clearance(plot, x, y):
@@ -284,6 +302,47 @@ def plant_gardens(model):
         for plot in patch.ward.geometry:
             if isinstance(plot, Plot):
                 _plant(plot, chooser)
+
+
+def _ring_of_trees(green, chooser):
+    """Trees spaced round the inside of a green's edge."""
+    inset = [GREEN_TREE_INSET] * len(green)
+    inner = green.shrink(inset) if green.is_convex() else green.buffer(inset)
+    if len(inner) < 3 or abs(inner.square) < 1:
+        return []
+    trees = []
+    carried = chooser.uniform(0, GREEN_TREE_SPACING)
+    for a, b in inner.edges():
+        length = math.dist((a.x, a.y), (b.x, b.y))
+        along = carried
+        while along < length:
+            if chooser.random() >= GREEN_TREE_GAPS:
+                t = along / length
+                x = a.x + (b.x - a.x) * t
+                y = a.y + (b.y - a.y) * t
+                x += chooser.uniform(-GREEN_TREE_JITTER, GREEN_TREE_JITTER)
+                y += chooser.uniform(-GREEN_TREE_JITTER, GREEN_TREE_JITTER)
+                radius = chooser.uniform(*GREEN_TREE_RADIUS)
+                if (clearance(green, x, y) >= radius
+                        and all(math.hypot(x - tx, y - ty)
+                                >= (radius + tr) * TREE_OVERLAP
+                                for tx, ty, tr in trees)):
+                    trees.append((x, y, radius))
+            along += GREEN_TREE_SPACING
+        carried = along - length
+    return trees
+
+
+def plant_greens(model):
+    """Line the edges of every green with trees."""
+    from .wards import Park
+
+    chooser = random.Random(f"{model.seed} green trees")
+    for patch in model.patches:
+        ward = patch.ward
+        if isinstance(ward, Park):
+            ward.geometry = [Green(green, _ring_of_trees(green, chooser))
+                             for green in ward.geometry]
 
 
 def build_burgage_plots(model):

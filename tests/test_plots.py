@@ -318,3 +318,48 @@ def test_trees_move_with_their_plot_and_come_back_on_undo():
 
     assert editor.undo()
     assert flat(building.polygon.trees) == pytest.approx(flat(before))
+
+
+def greens_of(model):
+    from citygen.plots import Green
+    return [g for p in model.patches for g in p.ward.geometry
+            if isinstance(g, Green)]
+
+
+@pytest.mark.parametrize("style", ["burgage", "gnome", "classic"])
+def test_greens_have_trees_round_their_edges(style):
+    model = Model(size=24, seed=5, greens=True, home_style=style)
+    greens = greens_of(model)
+    assert greens
+    for green in greens:
+        assert len(green.trees) >= 5
+        for x, y, radius in green.trees:
+            gap = plots.clearance(green, x, y)
+            assert gap >= radius
+            # Near the edge, not out in the middle.
+            assert gap <= plots.GREEN_TREE_INSET + plots.GREEN_TREE_JITTER * 2
+
+
+def test_green_trees_are_drawn():
+    model = Model(size=24, seed=5, greens=True)
+    layer = next(x for x in build_layers(model, PALETTE)
+                 if x.name == "Green trees")
+    assert layer.circles == [t for g in greens_of(model) for t in g.trees]
+
+
+def test_green_trees_move_with_their_green():
+    model = Model(size=24, seed=5, greens=True)
+    editor = CityEditor(model)
+    green = max(greens_of(model), key=lambda g: abs(g.square))
+    building = next(b for b in editor.buildings if b.polygon is green)
+    before = list(green.trees)
+    x, y = building.center()
+    assert editor.begin_move(building)
+    editor.drag_to(building, 1.5, 0.5)
+    editor.end_move()
+    dx, dy = building.cx - x, building.cy - y
+    assert (dx, dy) != (0, 0)
+    assert flat(green.trees) == pytest.approx(
+        flat((tx + dx, ty + dy, r) for tx, ty, r in before))
+    assert editor.undo()
+    assert flat(green.trees) == pytest.approx(flat(before))

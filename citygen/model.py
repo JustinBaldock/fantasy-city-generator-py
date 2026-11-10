@@ -477,6 +477,7 @@ class Model:
         elif self.home_style == "burgage":
             plots.build_burgage_plots(self)
         plots.plant_gardens(self)
+        plots.plant_greens(self)
         self.built_at = {}
         if self.shore:
             water.build_piers(self)

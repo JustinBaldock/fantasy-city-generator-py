@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from . import streets
 from .geometry import chaikin
 from .gnomes import GnomeHome
-from .plots import Plot
+from .plots import Green, Plot
 from .water import BRIDGE_WIDTH, RIVER_WIDTH
 from .wards import (
     AdministrationWard,
@@ -209,6 +209,9 @@ def build_layers(model, palette):
             parks += shapes
 
     layers.append(Layer("Greens", fill=palette.green, polygons=parks))
+    layers.append(Layer("Green trees", fill=palette.forest, circles=[
+        tree for patch in model.patches for green in patch.ward.geometry
+        if isinstance(green, Green) for tree in green.trees]))
     layers.append(Layer("Plots", fill=palette.garden, stroke=palette.medium,
                         width=PLOT_BORDER, polygons=gardens))
     layers.append(Layer("Garden trees", fill=palette.forest,
