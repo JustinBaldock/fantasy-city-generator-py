@@ -174,19 +174,21 @@ def _svg_scale_bar(extent, palette):
             f'stroke-width="{size / 12:.3f}">' + "".join(parts) + "</g>")
 
 
-def city_to_svg(model, palette, pixels=2000, show_scale_bar=True):
-    extent = map_extent(model)
+def layers_to_svg(layers, extent, palette, title, pixels=2000,
+                  show_scale_bar=True):
+    """Any set of layers as an SVG, showing extent map units round the
+    centre each way. The city and the location generator both use this."""
     side = extent * 2
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{pixels}" '
         f'height="{pixels}" viewBox="{-extent:.3f} {-extent:.3f} '
         f'{side:.3f} {side:.3f}">',
-        f'<title>{escape(size_name(model.size))}, seed {model.seed}</title>',
+        f'<title>{escape(title)}</title>',
         f'<rect x="{-extent:.3f}" y="{-extent:.3f}" width="{side:.3f}" '
         f'height="{side:.3f}" fill="{_colour(palette.paper)}"/>',
     ]
-    for layer in build_layers(model, palette):
+    for layer in layers:
         if not (layer.polygons or layer.polylines or layer.circles):
             continue
         lines.append(f'<g id="{escape(layer.name.lower().replace(" ", "-"))}" '
@@ -201,6 +203,12 @@ def city_to_svg(model, palette, pixels=2000, show_scale_bar=True):
         lines.append(_svg_scale_bar(extent, palette))
     lines.append("</svg>")
     return "\n".join(lines) + "\n"
+
+
+def city_to_svg(model, palette, pixels=2000, show_scale_bar=True):
+    return layers_to_svg(build_layers(model, palette), map_extent(model),
+                         palette, f"{size_name(model.size)}, seed {model.seed}",
+                         pixels, show_scale_bar)
 
 
 def save_svg(model, palette, path, show_scale_bar=True):

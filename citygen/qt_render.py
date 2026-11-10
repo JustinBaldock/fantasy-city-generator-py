@@ -98,6 +98,14 @@ def _prepare_layer(layer):
             if part.polygons or part.polylines or part.circles]
 
 
+def prepare_layers(layers):
+    """Turn any set of layers into paths that Qt can redraw quickly."""
+    prepared = []
+    for layer in layers:
+        prepared += _prepare_layer(layer)
+    return prepared
+
+
 def prepare(model, palette, kept=None):
     """Turn a city into paths, which Qt can then redraw quickly.
 
@@ -163,16 +171,19 @@ def paint_scale_bar(painter, palette, left, bottom, per_unit, most, size):
     painter.restore()
 
 
-def save_png(model, palette, path, pixels=3000, show_scale_bar=True):
+def save_layers_png(layers, extent, palette, path, pixels=3000,
+                    show_scale_bar=True):
+    """Any set of layers as a square PNG, showing extent map units round the
+    centre each way."""
     image = QImage(pixels, pixels, QImage.Format.Format_RGB32)
     image.fill(QColor(palette.paper))
 
     painter = QPainter(image)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.translate(pixels / 2, pixels / 2)
-    scale = pixels / (map_extent(model) * 2)
+    scale = pixels / (extent * 2)
     painter.scale(scale, scale)
-    paint(painter, prepare(model, palette))
+    paint(painter, prepare_layers(layers))
     if show_scale_bar:
         painter.resetTransform()
         margin = pixels * 0.03
@@ -182,3 +193,8 @@ def save_png(model, palette, path, pixels=3000, show_scale_bar=True):
 
     if not image.save(str(path), "PNG"):
         raise OSError(f"Couldn't save {path}")
+
+
+def save_png(model, palette, path, pixels=3000, show_scale_bar=True):
+    save_layers_png(build_layers(model, palette), map_extent(model), palette,
+                    path, pixels, show_scale_bar)
