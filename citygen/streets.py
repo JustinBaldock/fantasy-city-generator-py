@@ -19,7 +19,7 @@ cross a garden to get round a house. They are drawn over the gardens.
 
 import math
 
-from .geometry import Point, convex_hull
+from .geometry import Point, chaikin, convex_hull
 from .wards import MAIN_STREET, Market, Ward
 from .water import RIVER_WIDTH
 
@@ -41,6 +41,12 @@ MIN_WALL_STREET = 8.0  # Shorter stretches aren't worth a street.
 RIVER_ROOM = RIVER_WIDTH / 2 + 1.0
 
 CELL = 8.0
+
+# Streets stop this far from the middle of a road, at the outside of its
+# edge line, and are cut this finely to find where.
+ROAD_EDGE = MAIN_STREET / 2 + 0.15
+CLIP_STEP = 0.25
+ROAD_ROUNDING = 2  # As the map draws roads.
 
 
 def _outlines(model):
@@ -464,6 +470,89 @@ def _wall_streets(model, obstacles):
     return [r for r in runs if length(r) >= MIN_WALL_STREET]
 
 
+class _Roads:
+    """The pieces of the roads as drawn, in a grid, for trimming streets."""
+
+    def __init__(self, roads):
+        self.grid = {}
+        for road in roads:
+            line = chaikin(road, ROAD_ROUNDING)
+            for a, b in zip(line, line[1:]):
+                piece = (a, b)
+                for i in range(int((min(a[0], b[0]) - ROAD_EDGE) // CELL),
+                               int((max(a[0], b[0]) + ROAD_EDGE) // CELL) + 1):
+                    for j in range(
+                            int((min(a[1], b[1]) - ROAD_EDGE) // CELL),
+                            int((max(a[1], b[1]) + ROAD_EDGE) // CELL) + 1):
+                        self.grid.setdefault((i, j), []).append(piece)
+
+    def covers(self, x, y):
+        for (ax, ay), (bx, by) in self.grid.get(
+                (int(x // CELL), int(y // CELL)), ()):
+            dx = bx - ax
+            dy = by - ay
+            length = dx * dx + dy * dy
+            t = ((x - ax) * dx + (y - ay) * dy) / length if length else 0.0
+            t = max(0.0, min(1.0, t))
+            if math.hypot(x - ax - t * dx, y - ay - t * dy) < ROAD_EDGE:
+                return True
+        return False
+
+
+def _edge_between(roads, inside, outside):
+    """Where between two points a road's edge is, found by halving."""
+    for _ in range(12):
+        middle = ((inside[0] + outside[0]) / 2, (inside[1] + outside[1]) / 2)
+        if roads.covers(*middle):
+            inside = middle
+        else:
+            outside = middle
+    return outside
+
+
+def trim(line, roads):
+    """A street line with the parts on roads taken out, as separate lines."""
+    points = []
+    for a, b in zip(line, line[1:]):
+        steps = max(1, math.ceil(math.dist(a, b) / CLIP_STEP))
+        points += [(a[0] + (b[0] - a[0]) * k / steps,
+                    a[1] + (b[1] - a[1]) * k / steps) for k in range(steps)]
+    points.append(line[-1])
+
+    pieces = []
+    current = []
+    last_on_road = None
+    for point in points:
+        if roads.covers(*point):
+            if current:
+                current.append(_edge_between(roads, point, current[-1]))
+                pieces.append(current)
+                current = []
+            last_on_road = point
+            continue
+        if not current and last_on_road is not None:
+            # Coming off a road, so start at its edge.
+            current = [_edge_between(roads, last_on_road, point)]
+        current.append(point)
+        last_on_road = None
+    if current:
+        pieces.append(current)
+    return [_tidy(piece) for piece in pieces
+            if len(piece) >= 2 and _length(piece) > CLIP_STEP]
+
+
+def _tidy(points):
+    """Drop the steps that lie on a straight run, keeping the bends."""
+    kept = [points[0]]
+    for before, point, after in zip(points, points[1:], points[2:]):
+        cross = ((point[0] - before[0]) * (after[1] - point[1])
+                 - (point[1] - before[1]) * (after[0] - point[0]))
+        if abs(cross) > 1e-9:
+            kept.append(point)
+    kept.append(points[-1])
+    return kept
+
+
 def ways(model):
     """Every road and street to draw, as lists of (x, y).
 
@@ -477,4 +566,14 @@ def ways(model):
              for line in _main_ways(model)]
     streets = [bend_around(line, moved, STREET_HALF, everything)
                for line in _side_streets(model)]
-    return roads, streets, _wall_streets(model, everything)
+    # Streets stop at the edge of a road instead of running onto it.
+    drawn = _Roads(roads)
+    streets = [piece for line in streets for piece in trim(line, drawn)]
+    walls = [piece for line in _wall_streets(model, everything)
+             for piece in trim(line, drawn)
+             if _length(piece) >= MIN_WALL_STREET / 2]
+    return roads, streets, walls
+
+
+def _length(points):
+    return sum(math.dist(a, b) for a, b in zip(points, points[1:]))

@@ -24,7 +24,9 @@ def test_nothing_bends_on_a_map_nobody_has_edited(options):
     model = Model(**options)
     roads, side, _ = streets.ways(model)
     assert roads == streets._main_ways(model)
-    assert side == streets._side_streets(model)
+    drawn = streets._Roads(roads)
+    assert side == [piece for line in streets._side_streets(model)
+                    for piece in streets.trim(line, drawn)]
 
 
 @pytest.mark.parametrize("options", OPTIONS)
@@ -41,9 +43,8 @@ def test_roads_carry_on_through_town_to_the_centre(options):
 @pytest.mark.parametrize("options", OPTIONS)
 def test_side_streets_run_between_wards_in_town(options):
     model = Model(**options)
-    _, side, _ = streets.ways(model)
-    assert side
-    for (ax, ay), (bx, by) in side:
+    assert streets.ways(model)[1]
+    for (ax, ay), (bx, by) in streets._side_streets(model):
         middle = Point((ax + bx) / 2, (ay + by) / 2)
         owners = [p for p in model.patches
                   if any(math.dist((ax, ay), (v.x, v.y)) < 1e-9
@@ -248,3 +249,42 @@ def test_the_json_has_the_ways_as_drawn():
     assert len(data["drawn_roads"]) == len(roads)
     assert len(data["drawn_streets"]) == len(side)
     assert len(data["wall_streets"]) == len(wall)
+
+
+def distance_to_roads(roads, x, y):
+    from citygen.geometry import chaikin
+    best = math.inf
+    for road in roads:
+        line = chaikin(road, streets.ROAD_ROUNDING)
+        for (ax, ay), (bx, by) in zip(line, line[1:]):
+            dx, dy = bx - ax, by - ay
+            size = dx * dx + dy * dy
+            t = max(0, min(1, ((x - ax) * dx + (y - ay) * dy) / size)) if size else 0
+            best = min(best, math.hypot(x - ax - t * dx, y - ay - t * dy))
+    return best
+
+
+@pytest.mark.parametrize("options", OPTIONS)
+def test_street_lines_stop_at_the_edge_of_roads(options):
+    model = Model(**options)
+    editor = CityEditor(model)
+    if model.wall is not None:
+        north = max((b for b in editor.buildings
+                     if b.ward.patch.within_walls), key=lambda b: -b.cy)
+        drag(editor, north, 0, -20, steps=16)
+    roads, side, wall = streets.ways(model)
+    for line in side + wall:
+        for sample in streets._samples(line):
+            assert distance_to_roads(roads, sample[0], sample[1]) >= (
+                streets.ROAD_EDGE - 0.01)
+
+
+def test_trimming_cuts_a_street_where_it_crosses_a_road():
+    road = [(0, -20), (0, 20)]
+    street = [(-10, 0), (10, 0)]
+    pieces = streets.trim(street, streets._Roads([road]))
+    assert len(pieces) == 2
+    left, right = sorted(pieces, key=lambda piece: piece[0][0])
+    assert left[0] == (-10, 0) and right[-1] == (10, 0)
+    assert max(x for x, _ in left) == pytest.approx(-streets.ROAD_EDGE, abs=0.01)
+    assert min(x for x, _ in right) == pytest.approx(streets.ROAD_EDGE, abs=0.01)
