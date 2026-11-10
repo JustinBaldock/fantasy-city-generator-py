@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import export, qt_render
+from . import __version__, export, qt_render
 from .editing import CityEditor
 from .geometry import GenerationError, Point
 from .layers import PALETTES, map_extent
@@ -438,7 +438,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(APP_NAME)
+        self.setWindowTitle(f"{APP_NAME} {__version__}")
         self.resize(1100, 820)
         self.model = None
 
@@ -657,6 +657,7 @@ class MainWindow(QMainWindow):
     def _build_menu(self):
         file_menu = self.menuBar().addMenu("File")
         for text, shortcut, handler in (
+                ("Import JSON...", "Ctrl+O", self.import_json),
                 ("Export PNG...", "Ctrl+E", self.export_png),
                 ("Export SVG...", "Ctrl+Shift+E", self.export_svg),
                 ("Export JSON...", "Ctrl+J", self.export_json)):
@@ -785,6 +786,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, str(error))
             return
 
+        self._show(model)
+
+    def _show(self, model):
         self.model = model
         self.editor = CityEditor(model)
         self.built_state = self._control_state()
@@ -792,6 +796,83 @@ class MainWindow(QMainWindow):
         self._update_edit_controls()
         self.city_label.setText(
             f"{size_name(model.size)}, {model.size} wards, seed {model.seed}")
+
+    @staticmethod
+    def _select(box, value):
+        """Choose the item in a drop-down that holds a value."""
+        for i in range(box.count()):
+            data = box.itemData(i)
+            if data == value or (isinstance(data, float) and isinstance(
+                    value, (int, float)) and abs(data - value) < 1e-9):
+                box.setCurrentIndex(i)
+                return
+
+    def _show_settings(self, settings):
+        """Set the controls to match a city's settings, without rebuilding."""
+        boxes = {
+            "walls": self.walls_box, "citadel": self.citadel_box,
+            "plaza": self.plaza_box, "temple": self.temple_box,
+            "greens": self.greens_box, "coast": self.coast_box,
+            "river": self.river_box, "fields": self.fields_box,
+            "forests": self.forests_box, "orchards": self.orchards_box,
+            "hub": self.roads_box, "home_style": self.homes_box,
+            "orchard_ratio": self.orchard_ratio_box,
+            "temples": self.temple_count_box,
+            "field_ratio": self.field_ratio_box,
+        }
+        spins = [self.size_box, self.seed_box, self.sea_box]
+        for widget in spins + list(boxes.values()):
+            widget.blockSignals(True)
+        self.size_box.setValue(settings["size"])
+        self.seed_box.setValue(settings["seed"])
+        sea = settings.get("sea")
+        self.sea_box.setValue(-1 if sea is None else round(sea))
+        for key, box in boxes.items():
+            if key in settings:
+                self._select(box, settings[key])
+        for widget in spins + list(boxes.values()):
+            widget.blockSignals(False)
+        self._orchards_changed()
+        self.temple_count_box.setEnabled(
+            self.temple_box.currentData() is not False)
+        self.field_ratio_box.setEnabled(
+            self.fields_box.currentData() is not False)
+
+    def import_json(self):
+        """Open a city exported as JSON, with its edits, to carry on with."""
+        if not self._may_discard_edits():
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import JSON", "", "City data (*.json)")
+        if path:
+            self.open_json(path)
+
+    def open_json(self, path):
+        try:
+            model, differences, made_with = export.load_json(path)
+        except (export.ImportError_, GenerationError) as error:
+            QMessageBox.warning(self, APP_NAME,
+                                f"Couldn't open the city.\n{error}")
+            return False
+
+        notes = []
+        if made_with != __version__:
+            notes.append(
+                f"This city was made with version {made_with or 'unknown'} "
+                f"of {APP_NAME}, and this is version {__version__}. Cities "
+                "are made again from their settings, so a different version "
+                "may lay the town out differently, and moved buildings and "
+                "walls may not all land where they were.")
+        if differences:
+            notes.append("These parts of the city didn't come back exactly "
+                         "as they were saved: " + ", ".join(differences) + ".")
+
+        self._show_settings(model.settings)
+        self._show(model)
+        self.statusBar().showMessage(f"Opened {path}", 5000)
+        if notes:
+            QMessageBox.information(self, APP_NAME, "\n\n".join(notes))
+        return True
 
     def _palette_changed(self):
         if self.model is not None:

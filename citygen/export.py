@@ -1,23 +1,30 @@
 """Saving a city as JSON or SVG. PNG is in qt_render, since it needs Qt."""
 
 import json
+import math
 from xml.sax.saxutils import escape
+
+from . import __version__
+from .geometry import Point
 
 from .layers import build_layers, map_extent, scale_bar, scale_label
 from .plots import Plot
 from .streets import ways
-from .model import size_name
+from .model import Model, size_name
 
-JSON_FORMAT_VERSION = 12
+JSON_FORMAT_VERSION = 13
 
 
 def _xy(polygon):
     return [[round(v.x, 3), round(v.y, 3)] for v in polygon]
 
 
-def _wall(wall):
+def _wall(wall, model):
     return {
         "shape": _xy(wall.shape),
+        # Corners added by editing, by their place in shape.
+        "added": [i for i, v in enumerate(wall.shape)
+                  if id(v) not in model.built_corners],
         "gates": _xy(wall.gates),
         "towers": _xy(wall.towers),
     }
@@ -59,6 +66,11 @@ def city_to_dict(model):
     return {
         "format": "fantasy-city-generator",
         "version": JSON_FORMAT_VERSION,
+        # The version of the app that made it.
+        "app_version": __version__,
+        # What the city was made with. Importing makes it again from these,
+        # then puts back any moves and wall changes from the rest.
+        "settings": model.settings,
         "seed": model.seed,
         "size": model.size,
         "size_name": size_name(model.size),
@@ -80,8 +92,8 @@ def city_to_dict(model):
         "orchards": [_xy(plot) for plot in model.orchards],
         "orchard_trees": [[round(x, 2), round(y, 2), round(r, 2)]
                           for x, y, r in model.orchard_trees],
-        "wall": _wall(model.wall) if model.wall is not None else None,
-        "castle_wall": (_wall(model.citadel.ward.wall)
+        "wall": _wall(model.wall, model) if model.wall is not None else None,
+        "castle_wall": (_wall(model.citadel.ward.wall, model)
                         if model.citadel is not None else None),
         "streets": [_xy(street) for street in model.streets],
         # The ways as drawn, bent round any moved buildings.
@@ -195,3 +207,188 @@ def save_svg(model, palette, path, show_scale_bar=True):
     with open(path, "w", encoding="utf-8") as file:
         file.write(city_to_svg(model, palette,
                                show_scale_bar=show_scale_bar))
+
+
+class ImportError_(ValueError):
+    """A JSON file that can't be opened as a city."""
+
+
+# The file keeps points to this many places, so a point that rounds to
+# what the file says is where it should be.
+PLACES = 3
+MOVED = 10 ** -PLACES  # For matching towers to corners.
+
+# Parts of the file that are worked out from the rest, so they're left out
+# when checking an import came back the same.
+_DERIVED = ("version", "app_version", "drawn_roads", "drawn_streets",
+            "wall_streets")
+
+
+def _matches(point, x, y):
+    return (round(point.x, PLACES), round(point.y, PLACES)) == (x, y)
+
+
+def _move(point, x, y):
+    if not _matches(point, x, y):
+        point.x = x
+        point.y = y
+
+
+def _restore_wall(editor, wall, saved, built):
+    """Put back a wall's corners, adding any that editing added."""
+    added = set(saved.get("added", []))
+    for i, (x, y) in enumerate(saved["shape"]):
+        live = wall.shape[i] if i < len(wall.shape) else None
+        if i in added and (live is None or id(live) in built):
+            # Not there yet, so add it on the edge where it belongs.
+            before = wall.shape[i - 1]
+            after = wall.shape[i % len(wall.shape)]
+            editor._put_corners(before, after, [0.5])
+        if i >= len(wall.shape):
+            raise ImportError_("A wall in the file doesn't match its town")
+        _move(wall.shape[i], x, y)
+    if len(wall.shape) != len(saved["shape"]):
+        raise ImportError_("A wall in the file doesn't match its town")
+
+
+def _restore_towers(wall, saved):
+    """Put back the towers, including any added, taken off or moved."""
+    spare = [t for t in wall.towers if t not in wall.shape]
+    towers = []
+    for x, y in saved["towers"]:
+        corner = next((v for v in wall.shape
+                       if abs(v.x - x) <= MOVED and abs(v.y - y) <= MOVED),
+                      None)
+        if corner is None and spare:
+            # A tower beside a river, off the wall's corners.
+            corner = min(spare, key=lambda t: math.hypot(t.x - x, t.y - y))
+            spare.remove(corner)
+            _move(corner, x, y)
+        if corner is not None and corner not in towers:
+            towers.append(corner)
+    wall.towers[:] = towers
+
+
+def _restore_points(points, saved):
+    if len(points) == len(saved):
+        for point, (x, y) in zip(points, saved):
+            _move(point, x, y)
+
+
+def _restore_building(polygon, saved, house=None):
+    """Put a building where the file has it, with what stands on it.
+
+    Buildings slide, so what stands on one goes the same way. A building
+    can also share a corner with a wall, which moves that corner alone.
+    """
+    if not saved or len(saved) != len(polygon):
+        raise ImportError_("A building in the file doesn't match its town")
+    if all(_matches(v, x, y) for v, (x, y) in zip(polygon, saved)):
+        return
+    dx = saved[0][0] - polygon[0].x
+    dy = saved[0][1] - polygon[0].y
+    carry = getattr(polygon, "carry", None)
+    if carry is not None:
+        carry(dx, dy)
+    # New points, since neighbouring buildings can share them.
+    polygon[:] = [Point(x, y) for x, y in saved]
+    if house is not None and len(house) == len(polygon.house):
+        polygon.house[:] = [Point(x, y) for x, y in house]
+
+
+def _restore_garden_trees(ward, saved):
+    """Put garden trees where the file has them, plot by plot."""
+    plots = [p for p in ward.geometry if isinstance(p, Plot)]
+    if sum(len(p.trees) for p in plots) != len(saved):
+        return
+    place = 0
+    for plot in plots:
+        mine = saved[place:place + len(plot.trees)]
+        place += len(plot.trees)
+        if any((round(x, 2), round(y, 2), round(r, 2)) != tuple(s)
+               for (x, y, r), s in zip(plot.trees, mine)):
+            plot.trees = [tuple(s) for s in mine]
+
+
+def city_from_dict(data):
+    """A city made again from exported data, with its edits put back.
+
+    The city is made from its settings, which gives the town as it first
+    was, and then the walls, roads and buildings are moved to match the
+    file. Returns the city and a list of anything that didn't come back the
+    same, which is empty for a file this app saved.
+    """
+    from .editing import CityEditor
+
+    if data.get("format") != "fantasy-city-generator":
+        raise ImportError_("This isn't a city exported from this app")
+    settings = data.get("settings")
+    if settings is None:
+        raise ImportError_(
+            "This file was exported by an older version of the app, which "
+            "didn't save the settings needed to open it again")
+
+    model = Model(**settings)
+    editor = CityEditor(model)
+    built = set(model.built_corners)
+    saved_walls = (data.get("wall"), data.get("castle_wall"))
+    walls = (model.wall,
+             model.citadel.ward.wall if model.citadel is not None else None)
+    for wall, saved in zip(walls, saved_walls):
+        if (wall is None) != (saved is None):
+            raise ImportError_("The file's walls don't match its town")
+        if wall is not None:
+            _restore_wall(editor, wall, saved, built)
+    for wall, saved in zip(walls, saved_walls):
+        if wall is not None:
+            _restore_towers(wall, saved)
+
+    saved_wards = data.get("wards", [])
+    if len(saved_wards) != len(model.patches):
+        raise ImportError_("The file's wards don't match its town")
+    for patch, saved in zip(model.patches, saved_wards):
+        _restore_points(patch.shape, saved["shape"])
+    for road, saved in zip(model.roads, data.get("roads", [])):
+        _restore_points(road, saved)
+    for street, saved in zip(model.streets, data.get("streets", [])):
+        _restore_points(street, saved)
+
+    for patch, saved in zip(model.patches, saved_wards):
+        ward = patch.ward
+        if len(saved["buildings"]) != len(ward.geometry):
+            raise ImportError_("A ward in the file doesn't match its town")
+        borders = saved.get("plots") or [None] * len(ward.geometry)
+        for polygon, border, building in zip(ward.geometry, borders,
+                                             saved["buildings"]):
+            if border is not None and isinstance(polygon, Plot):
+                _restore_building(polygon, border, building)
+            else:
+                _restore_building(polygon, building)
+        _restore_garden_trees(ward, saved.get("garden_trees", []))
+        for polygon, landmark in zip(ward.landmarks, saved["landmarks"]):
+            _restore_building(polygon, landmark)
+
+    again = city_to_dict(model)
+    differences = [key for key in data
+                   if key not in _DERIVED and again.get(key) != data[key]]
+    return model, differences
+
+
+def load_json(path):
+    """Open an exported city.
+
+    Returns the city, anything that didn't come back the same, and the
+    version of the app that made the file, or None if it doesn't say.
+    """
+    try:
+        with open(path, encoding="utf-8") as file:
+            data = json.load(file)
+    except (OSError, ValueError) as error:
+        raise ImportError_(f"Couldn't read {path}: {error}") from error
+    if not isinstance(data, dict):
+        raise ImportError_("This isn't a city exported from this app")
+    try:
+        model, differences = city_from_dict(data)
+    except (TypeError, KeyError, IndexError) as error:
+        raise ImportError_("The file is damaged or incomplete") from error
+    return model, differences, data.get("app_version")

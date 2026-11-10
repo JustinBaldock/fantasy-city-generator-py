@@ -128,6 +128,13 @@ class Model:
 
         self.seed = seed
         self.size = size
+        # Everything the city was made with, so it can be made again.
+        self.settings = dict(
+            size=size, seed=seed, walls=walls, citadel=citadel, plaza=plaza,
+            temple=temple, greens=greens, coast=coast, river=river, hub=hub,
+            sea=sea, fields=fields, forests=forests, home_style=home_style,
+            orchards=orchards, orchard_ratio=orchard_ratio, temples=temples,
+            field_ratio=field_ratio)
         self.temple_option = temple
         self.greens_option = greens
         self.hub = hub
@@ -507,6 +514,17 @@ class Model:
             for patch in self.patches
             for polygon in list(patch.ward.geometry) + list(patch.ward.landmarks)
         }
+        # The wall corners the city was built with. Editing can add more.
+        self.built_corners = {id(v) for wall in self.walls() for v in wall.shape}
+
+    def walls(self):
+        """The city wall and the castle wall, where there are any."""
+        found = []
+        if self.wall is not None:
+            found.append(self.wall)
+        if self.citadel is not None:
+            found.append(self.citadel.ward.wall)
+        return found
 
     def has_moved(self, polygon):
         """Whether a building has moved since the city was built."""
