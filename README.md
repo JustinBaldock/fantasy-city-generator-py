@@ -12,7 +12,7 @@ This is an unofficial Python port of [TownGeneratorOS](https://github.com/watabo
 - [Making a map](#making-a-map)
 - [What's on the map](#whats-on-the-map)
 - [Editing a map](#editing-a-map)
-- [Exporting](#exporting)
+- [Exporting and importing](#exporting-and-importing)
 - [How it differs from the website](#how-it-differs-from-the-website)
 - [For developers](#for-developers)
 - [Licence](#licence)
@@ -135,13 +135,19 @@ Turn on Edit buildings, or press `E`, to change a map by hand.
 
 ### Undo and keeping your changes
 
-Undo move, or `Cmd`+`Z`, takes back one change at a time, including any walls a drag moved. Exports show your changes. Changes aren't saved anywhere else, so export a map to keep it. The app asks first before a new map would replace one you've edited.
+Undo move, or `Cmd`+`Z`, takes back one change at a time, including any walls a drag moved. Exports show your changes. To keep an edited map and carry on with it later, export it as JSON and import it again. The app asks first before a new map would replace one you've edited.
 
-## Exporting
+## Exporting and importing
+
+The File menu exports the map three ways.
 
 - **PNG** at any size from 500 to 16,000 pixels square, with the scale bar unless it's turned off.
 - **SVG** with each kind of feature in its own named group, ready to edit in a vector program, and the scale bar unless it's turned off.
-- **JSON** with the wards, buildings, plots, walls, gates, towers, streets, roads, fields, orchards and trees as coordinates, including the roads and streets as drawn, and the settings that shaped them. This is this app's own format, not the JSON format of Watabou's site.
+- **JSON** with the wards, buildings, plots, walls, gates, towers, streets, roads, fields, orchards and trees as coordinates, including the roads and streets as drawn. It also records the settings the map was made with and the version of the app that made it. This is this app's own format, not the JSON format of Watabou's site.
+
+Import JSON, or `Cmd`+`O`, opens a JSON export again so you can carry on editing it. The app makes the town again from its saved settings, puts back every building you moved, every wall corner you moved or added and every tower you added or took off, and sets the controls to match.
+
+A JSON file records which version of the app made it, and the version shows in the window's title. If you open a file made with a different version, the app says so. The town is made again from its settings, and a newer version may lay it out differently, so moved buildings and walls may not all land where they were. The app also says if any part of the town didn't come back exactly as it was saved. Files exported before version 1.0.0 didn't record their settings and can't be opened.
 
 ## How it differs from the website
 
@@ -176,7 +182,7 @@ The same seed won't give the same map here as on the website. The site's generat
 | `citygen/model.py` | Building a whole city |
 | `citygen/streets.py` | The roads and streets as drawn, bent round moved buildings and joined to bridges |
 | `citygen/layers.py` | What a map draws, as plain data, the colour styles and the scale bar |
-| `citygen/export.py` | JSON and SVG |
+| `citygen/export.py` | JSON and SVG, and importing JSON |
 | `citygen/qt_render.py` | Drawing with Qt, and PNG |
 | `citygen/editing.py` | Moving and locking buildings, and reshaping walls |
 | `citygen/app.py` | The desktop app |
@@ -188,6 +194,7 @@ The same seed won't give the same map here as on the website. The site's generat
 - Everything except `qt_render.py` and `app.py` is free of Qt, so the city, its layers and the SVG and JSON exports can be built and tested without a window.
 - The features added in this port draw their own random numbers, seeded from the map's seed, rather than taking from the original's sequence. Turning one on or off leaves the rest of the map alone, and Classic homes still give the original's layout.
 - Roads and streets are worked out from the buildings each time the map is drawn, so they follow every edit and undo without being saved anywhere.
+- Importing makes a town again from its settings and then moves its walls, roads and buildings to match the file, rather than rebuilding it from the coordinates alone. This keeps the town fully editable. `citygen/__init__.py` holds the app's version, which goes in every export. Bump it when a change could make the same settings give a different town.
 - The window keeps the drawn map with a spare edge round it, so hovering and small pans don't redraw it, and big layers are drawn in small tiles, which Qt fills much faster.
 
 ### Tests
