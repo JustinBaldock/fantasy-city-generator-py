@@ -2,9 +2,20 @@
 
 A desktop app that generates maps of medieval fantasy towns and cities, written in Python with PySide6.
 
-Pick a size and press Return, and you get a new walled town or sprawling city, with streets, wards, a castle, temples, greens, farm fields, forests, and a coast or river if you want one. Every map comes from a seed, so the same seed and settings always give the same map. It runs on your own computer with no web browser and no account.
+Pick a size and press Return, and you get a new walled town or sprawling city, with streets, wards, homes on their own plots, a castle, temples, greens, farmland, forests, and a coast or river if you want one. Every map comes from a seed, so the same seed and settings always give the same map. You can then move buildings and reshape the walls by hand, and export the result. It runs on your own computer with no web browser and no account.
 
 This is an unofficial Python port of [TownGeneratorOS](https://github.com/watabou/TownGeneratorOS), the Haxe source code that [Watabou](https://github.com/watabou) released for the [Medieval Fantasy City Generator](https://watabou.itch.io/medieval-fantasy-city-generator). All credit for the generator's design and algorithms goes to Watabou. Please don't send them bug reports for this port.
+
+## Contents
+
+- [Running it](#running-it)
+- [Making a map](#making-a-map)
+- [What's on the map](#whats-on-the-map)
+- [Editing a map](#editing-a-map)
+- [Exporting](#exporting)
+- [How it differs from the website](#how-it-differs-from-the-website)
+- [For developers](#for-developers)
+- [Licence](#licence)
 
 ## Running it
 
@@ -16,113 +27,170 @@ python3 -m venv .venv
 .venv/bin/python -m citygen
 ```
 
-## Using it
+## Making a map
+
+### Size and seed
 
 - Press Return, or New map, for a new map at the same size.
-- Press a size button for a new map of that kind of settlement, or set the number of wards directly, from 6 to 40.
+- Press a size button (Small Town, Large Town, Small City, Large City or Metropolis) for a new map of that kind of settlement, or set the number of wards directly, from 6 to 40.
 - To get a map back, type its seed and press Return.
-- Walls, Castle, Plaza, Temple, Greens, Coast, River, Wheat fields, Forests and Orchards can each be Random, Yes or No. Changing one rebuilds the same seed.
-- The number beside Temple sets how many temples the town has, from 1 to 10. With Temple on Random the seed decides whether there are any, and there are either none or that many. Temples avoid the wards beside another temple where there's room, and a small town gets as many as it has wards for.
-- Sea to sets the compass bearing of the coast, with 0 for north and 90 for east.
-- Roads sets whether every gate has a road, or only two roads lead out of town.
-- Homes switches between burgage plots, gnome homes and classic houses. See below. Changing it keeps the same streets, walls and water.
-- Style changes the colours without changing the map.
+
+### City options
+
+Changing any option rebuilds the same seed, so you can see what each one does to the same town. Most can be Random, Yes or No, and Random leaves the choice to the seed.
+
+| Option | What it does |
+| --- | --- |
+| Walls | A city wall with towers and gates |
+| Castle | A walled castle, joined to the city wall when there is one |
+| Plaza | An open market square at the centre |
+| Temple | Temples, with the number beside it setting how many, from 1 to 10 |
+| Greens | Parks with trees round their edges |
+| Coast | The sea along one side of town |
+| River | A river through town, with bridges |
+| Wheat fields | Farmland, with the ratio beside it setting how much |
+| Forests | Woods on the higher ground around town |
+| Orchards | Orchards, with the ratio beside it setting their share of the farmland |
+| Roads | Whether every gate has a road out of town, or only two |
+| Homes | Burgage plots, gnome homes or classic houses |
+| Sea to | The compass bearing of the coast, with 0 for north and 90 for east |
+
+The number and ratios beside Temple, Wheat fields and Orchards are greyed out when they can't apply, such as with Temple set to No.
+
+### Viewing
+
 - Scroll to zoom, drag to pan, and double-click to reset the view.
 - Hover over a ward to see what kind it is.
+- Style changes the colours without changing the map.
+- A scale bar sits in the bottom left corner. View > Scale bar turns it off, on the map and in exports.
 
-## Roads and streets
+## What's on the map
 
-Each road carries on through its gate as the main street to the centre of town. The other gaps between wards in town have streets, drawn as single lines. Streets stop at the edge of a road and never cross one. Roads and streets meet bridges end on, so traffic can cross: a road over the river runs straight across its bridge, streets from a bridge start at its ends, and a bridge end with no way at it gets a short street to the nearest road or street on that bank. Ways otherwise stop at the water's edge. A street also runs just inside the city wall wherever there's room between the wall and the buildings, such as inside a bulge made by pushing the wall out.
+### Homes
 
-Roads and streets react to the buildings. Move a building onto one and it bends smoothly round it, cutting across gardens if it needs to, and it straightens again when the building moves off or the move is undone. Where houses stand close on both sides, as they do along most streets in town, there's no room to bend, and the moved building stands over the way instead. Buildings that haven't been moved never bend a way.
+Every house stands on its own plot of land, drawn as a property with a border round it. Homes come in three styles, chosen with Homes. Changing it keeps the same streets, walls and water.
 
-## Greens
+**Burgage plots** are the medieval town plot, and the default. The house stands at the front, on the street, or on a lane if the plot doesn't reach a street, with a long garden behind for growing food and keeping animals. A plot too cramped for a garden has a cottage that nearly fills it, and bigger gardens have a few trees in them. Administration and Military buildings stand in the middle of their plots.
 
-Greens are open parkland with trees spaced round the inside of their edges, leaving a few gaps. The trees move with the green when you move it.
+**Gnome homes** are hexagons with square rooms built onto some of their straight sides, and a line shows where each room joins the hexagon. Each home has its own plot, and a plot too long for one home is split in two with a lane between. Not everything is a home. Shops, workshops, warehouses and stores are plain squares and rectangles mixed in among them, about half the plots in a Merchant ward and fewer in the others. Administration and Military wards are all rectangles, and each farm gets a home with a barn beside it when the land has space.
 
-## Orchards
+**Classic houses** fill their plots edge to edge, with no gardens or borders, as on the original generator. A classic map is the same as this port gave before plots were added.
 
-Wheat fields are the furrowed farm plots around town, each two to three times the size of an orchard.
+Castles, temples, markets and farms have no plot border in any style.
 
-Orchards are farm plots with their trees in neat rows, each with a faint hedge round it. Where an orchard takes the place of a wheat field, the field's land makes two or three orchards.
+### Roads and streets
 
-The drop-down beside Orchards sets how much of the farmland is orchard: 1:10, 1:8 or 1:4, orchard to wheat field by area. Orchards go nearest the farmhouses first. The fields are big, so a map lands near the ratio rather than on it. With Orchards off the farmland is all wheat fields, and with Wheat fields off the orchards take the plots beside farmhouses and the higher farmland near town instead. They take some of the plots beside farmhouses, and the higher farmland near town that is too steep for fields. Turning orchards on or off leaves the other fields where they were, and forests keep out of them.
+- Each road carries on through its gate as the main street to the centre of town.
+- The other gaps between wards in town have streets, drawn as single lines. Streets stop at the edge of a road and never cross one.
+- A street runs just inside the city wall wherever there's room between the wall and the buildings, such as inside a bulge made by pushing the wall out.
+- Roads and streets meet bridges end on, so traffic can cross. A road over the river runs straight across its bridge, streets from a bridge start at its ends, and a bridge end with no way at it gets a short street to the nearest road or street on that bank. Ways otherwise stop at the water's edge.
 
-## Plots and burgage plots
+Roads and streets react to buildings you move. Move a building onto one and it bends smoothly round it, cutting across gardens if it needs to, and it straightens again when the building moves off or the move is undone. Where houses stand close on both sides, as they do along most streets in town, there's no room to bend, and the moved building stands over the way instead. Buildings that haven't been moved never bend a way.
 
-Every house stands on its own plot of land, drawn as a property with a border round it.
+### Walls, castles and temples
 
-Homes are burgage plots unless you choose gnome homes or classic houses. A burgage plot is the medieval town plot, with the house at the front on the street, or on a lane if the plot doesn't reach a street, and a long garden behind for growing food and keeping animals. A plot too cramped for a garden has a cottage that nearly fills it. Bigger gardens have a few trees in them. Administration and Military buildings stand in the middle of their plots, and castles, temples, markets and farms have no plot border.
+The city wall has towers at its corners and gates where the main streets leave town. A castle has its own wall, joined to the city wall where they meet.
 
-Classic houses fill their plots edge to edge with no gardens or borders, as on the original generator. A classic map is the same as this port gave before plots were added.
+The number beside Temple sets how many temples the town has, from 1 to 10. With Temple on Random the seed decides whether there are any, and there are either none or that many. Temples avoid the wards beside another temple where there's room, and a small town gets as many as it has wards for.
 
-## Gnome homes
+### Water
 
-Set Homes to Gnome for a town of gnomes. A gnome home is a hexagon with square rooms built onto some of its straight sides, and a line on the map shows where each room joins the hexagon. Each home has its own plot, and a plot too long for one home is split in two with a lane between. Bigger plots have a few trees in their gardens.
+A coast puts the sea along one side of town, with piers along the waterfront. A river runs between the wards rather than through them, since water follows the edges between wards. Where it runs through town it has bridges.
 
-Not everything is a home. Shops, workshops, warehouses and stores are plain squares and rectangles, mixed in among the homes. About half the plots in a Merchant ward are, and fewer in the others. Administration and Military wards are all rectangles, and each farm gets a home with a barn beside it when the land has space. Castles, temples and markets stay as they are.
+### Countryside
 
-Moving, locking and exporting all work the same way. A pushed home moves whole, with its rooms.
+**Wheat fields** are the furrowed farm plots around town, each two to three times the size of an orchard. The ratio beside Wheat fields sets how many there are for each ward of the town, from 4:1 for a farming town to 1:4 for one with very little. Fields take the land nearest the city first, and low ground before hills. The farmland a map usually shows is enough for 1:1 or fewer. A farming town at 4:1, 3:1 or 2:1 takes more, so its map grows to show all of its fields, with forest filling the extra ground.
 
-## Moving and locking buildings
+**Orchards** are farm plots with their trees in neat rows, each with a faint hedge round it. The ratio beside Orchards sets their share of the farmland, 1:10, 1:8 or 1:4, orchard to wheat field by area. They go nearest the farmhouses first, and where an orchard takes the place of a wheat field, the field's land makes two or three orchards. The fields are big, so a map lands near the ratio rather than on it. With Orchards off the farmland is all wheat fields, and with Wheat fields off the orchards take the plots beside farmhouses and the higher farmland near town instead. Turning orchards on or off leaves the other fields where they were.
 
-Turn on Edit buildings, or press `E`, to change a map by hand, buildings and walls both.
+**Forests** grow on the higher ground around town and keep off the fields, orchards, roads and water. Farms dot the land beyond the town.
+
+### Greens
+
+Greens are open parkland with trees spaced round the inside of their edges, leaving a few gaps.
+
+### Scale
+
+The original generator gives no real size, so this app uses 4 metres for each map unit. At that scale a main street is 8 metres across and a burgage plot about 28 by 48 metres. The scale bar picks a round length, such as 50 metres or 200 metres, to suit the zoom.
+
+## Editing a map
+
+Turn on Edit buildings, or press `E`, to change a map by hand.
+
+### Moving and locking buildings
 
 - Click a building to select it, and drag it to move it. Dragging open ground still pans.
+- A building moves with its whole plot, and clicking anywhere on the plot selects it. A green's trees and a gnome home's rooms move with it too.
 - Buildings in the way get pushed aside, and can push others in turn.
-- A building moves with its whole plot, and clicking anywhere on the plot selects it.
-- To lock a building, right-click it, or select it and press `L` or Lock building. Locked buildings show in red. They can't be moved or pushed, so they stop anything that runs into them. Locking again unlocks.
-- City walls give way. A building that reaches a wall bends that stretch into a smooth curve, with its towers and gates. The further it goes the wider the wall swells, so a long drag makes a rounded bulge, and the land it takes in stays empty. Roads are carried along outside the wall and stay joined to their gates, and buildings beyond the wall are moved out of its way.
-- The sea and rivers stop buildings, and a dragged building slides along them. Walls that run along water stay put and a bulge won't enter water. A locked building holds a wall back, so the curve tapers off beside it, and a castle wall can't be pushed through the city wall.
-- Walls can be reshaped by hand. Every wall corner you can move has a handle, filled for a tower. Drag a corner, tower or gate to move it, and the wall, the wards beside it and any road from a gate go with it. Buildings in the way are pushed aside. Drag a stretch of wall to put a new corner there and pull it out or in.
+- To lock a building, right-click it, or select it and press `L` or Lock building. Locked buildings show in red. They can't be moved or pushed, so they stop anything that runs into them. Locking again unlocks, and Unlock all clears every lock.
+- The sea and rivers stop buildings, and a dragged building slides along them.
+- City walls give way. A building that reaches a wall bends that stretch into a smooth curve, with its towers and gates. The further it goes the wider the wall swells, so a long drag makes a rounded bulge, and the land it takes in stays empty. Roads are carried along outside the wall and stay joined to their gates, and buildings beyond the wall are moved out of its way. Walls that run along water stay put, a bulge won't enter water, a locked building holds a wall back so the curve tapers off beside it, and a castle wall can't be pushed through the city wall.
+
+### Reshaping walls
+
+- Every wall corner you can move has a handle, filled for a tower. Drag a corner, tower or gate to move it, and the wall, the wards beside it and any road from a gate go with it. Buildings in the way are pushed aside.
+- Drag a stretch of wall to put a new corner there and pull it out or in.
 - Right-click a wall corner to put a tower on it or take one off. Gates don't take towers.
 - Corners where a wall meets the water stay put, and a wall can't be dragged into water or across another wall. Buildings pushed by a moving wall stop at the other walls instead of going through them, so a wall dragged into a crowded part of town stops when the buildings can't move.
-- Undo move, or `Cmd`+`Z`, takes back one drag at a time, including any walls it moved. Unlock all clears every lock.
 
-Exports show the moved buildings. Moves aren't saved anywhere else, so export a map to keep it. The app asks first before a change would replace a map you've edited.
+### Undo and keeping your changes
+
+Undo move, or `Cmd`+`Z`, takes back one change at a time, including any walls a drag moved. Exports show your changes. Changes aren't saved anywhere else, so export a map to keep it. The app asks first before a new map would replace one you've edited.
 
 ## Exporting
 
-- **PNG** at any size from 500 to 16,000 pixels square.
-- **SVG** with each kind of feature in its own named group, ready to edit in a vector program.
-- **JSON** with the wards, buildings, plots, walls, gates, towers, streets and roads as coordinates, including the roads and streets as drawn. This is this app's own format, not the JSON format of Watabou's site.
+- **PNG** at any size from 500 to 16,000 pixels square, with the scale bar unless it's turned off.
+- **SVG** with each kind of feature in its own named group, ready to edit in a vector program, and the scale bar unless it's turned off.
+- **JSON** with the wards, buildings, plots, walls, gates, towers, streets, roads, fields, orchards and trees as coordinates, including the roads and streets as drawn, and the settings that shaped them. This is this app's own format, not the JSON format of Watabou's site.
 
 ## How it differs from the website
 
 This port is based on the source code Watabou published, which stopped being updated years ago. The website has moved on since then.
 
-Coasts, rivers, bridges, piers, farm fields, forests, rounded greens, temple landmarks, plots, burgage plots, gnome homes, the Roads option and curved road drawing aren't in the published source. They are this project's own work, modelled on what the website's maps show, and no code was taken from the website. They won't match it exactly. Water follows the edges between wards, for example, so a river can't cut through the middle of one.
+Coasts, rivers, bridges, piers, farm fields, orchards, forests, rounded greens and their trees, temple landmarks and counts, plots, burgage plots, gnome homes, drawn streets, the Roads option, curved road drawing and the scale bar aren't in the published source. They are this project's own work, modelled on what the website's maps show where the site has them, and no code was taken from the website. They won't match it exactly.
 
-The website's building shadows, district names, grid, compass and scale bar aren't in this app.
+Editing buildings and walls, and all the options, are also additions in this port. The published source chose its features only from the seed, and could only show the map on screen.
+
+The website's building shadows, district names, grid and compass aren't in this app.
 
 The same seed won't give the same map here as on the website. The site's generator has changed since this code was published, and the port also differs from the original in small ways, such as the order roads are searched in.
 
-The Walls, Castle and Plaza options and the exports are also additions in this port. The published source chose those features only from the seed, and could only show the map on screen.
+## For developers
 
-## How it's organised
+### How it's organised
 
 | File | What it does |
 | --- | --- |
 | `citygen/rng.py` | The seeded random numbers |
-| `citygen/geometry.py` | Points and polygons |
+| `citygen/geometry.py` | Points, polygons and convex hulls |
 | `citygen/voronoi.py` | The regions that become wards |
 | `citygen/cutter.py` | Dividing polygons |
-| `citygen/water.py` | Coasts, rivers, bridges and piers |
-| `citygen/countryside.py` | Farm fields and forests |
 | `citygen/patch.py` | A patch of land, and the outline around a group |
 | `citygen/walls.py` | City and castle walls |
 | `citygen/topology.py` | The street network and path finding |
 | `citygen/wards.py` | The ward types and how they lay out buildings |
+| `citygen/water.py` | Coasts, rivers, bridges and piers |
+| `citygen/plots.py` | Plots with a building on each, burgage plots, garden trees and the trees round greens |
+| `citygen/gnomes.py` | Gnome homes, and the rectangles and barns among them |
+| `citygen/countryside.py` | Wheat fields, orchards and forests |
 | `citygen/model.py` | Building a whole city |
-| `citygen/layers.py` | What a map draws, as plain data, and the colour styles |
+| `citygen/streets.py` | The roads and streets as drawn, bent round moved buildings and joined to bridges |
+| `citygen/layers.py` | What a map draws, as plain data, the colour styles and the scale bar |
 | `citygen/export.py` | JSON and SVG |
 | `citygen/qt_render.py` | Drawing with Qt, and PNG |
-| `citygen/editing.py` | Moving and locking buildings |
+| `citygen/editing.py` | Moving and locking buildings, and reshaping walls |
 | `citygen/app.py` | The desktop app |
 
-Everything except `water.py`, `countryside.py` and `editing.py` follows the original's structure, with small additions for the new features. Where the original's behaviour looks like a mistake but shapes the maps, the port keeps it and says so in a comment. `Polygon.distance` is the main example.
+`rng.py`, `geometry.py`, `voronoi.py`, `cutter.py`, `patch.py`, `walls.py`, `topology.py`, `wards.py` and `model.py` follow the original's structure, with small additions for the new features. The other modules are this port's own. Where the original's behaviour looks like a mistake but shapes the maps, the port keeps it and says so in a comment. `Polygon.distance` is the main example.
 
-To run the tests:
+### Design notes
+
+- Everything except `qt_render.py` and `app.py` is free of Qt, so the city, its layers and the SVG and JSON exports can be built and tested without a window.
+- The features added in this port draw their own random numbers, seeded from the map's seed, rather than taking from the original's sequence. Turning one on or off leaves the rest of the map alone, and Classic homes still give the original's layout.
+- Roads and streets are worked out from the buildings each time the map is drawn, so they follow every edit and undo without being saved anywhere.
+- The window keeps the drawn map with a spare edge round it, so hovering and small pans don't redraw it, and big layers are drawn in small tiles, which Qt fills much faster.
+
+### Tests
 
 ```bash
 .venv/bin/python -m pip install -r requirements-dev.txt
