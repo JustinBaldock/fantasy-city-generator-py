@@ -187,3 +187,57 @@ def test_a_drag_drawn_in_parts_looks_the_same_as_a_full_redraw(qapp,
     # Only the smoothing along edges may round a shade differently.
     assert worst_difference(whole, in_parts, 3) <= 8
     window.close()
+
+
+def test_the_banded_inside_test_agrees_with_contains_point():
+    import random
+
+    from citygen.geometry import Point
+
+    model = Model(40, 3, walls=True)
+    inside = streets._Inside(model.wall.shape)
+    chooser = random.Random(1)
+    radius = model.wall.get_radius()
+    for _ in range(3000):
+        x = chooser.uniform(-radius * 1.2, radius * 1.2)
+        y = chooser.uniform(-radius * 1.2, radius * 1.2)
+        assert inside(x, y) == model.wall.shape.contains_point(Point(x, y))
+
+
+def wall_drag(model, steps=6):
+    editor = CityEditor(model)
+    wall = model.wall
+    corner = next(c for c in sorted(wall.shape, key=lambda c: -c.length)
+                  if c not in wall.gates and not editor.is_fixed_corner(c))
+    x, y = corner.x, corner.y
+    editor.begin_wall_move(corner)
+    for i in range(1, steps + 1):
+        editor.drag_wall_to(corner, -x * 0.015 * i, -y * 0.015 * i)
+        yield editor
+    editor.end_move()
+
+
+def test_kept_bends_and_outlines_match_working_them_out_afresh():
+    from citygen.export import city_to_svg
+
+    model = Model(24, 4, walls=True, home_style="gnome")
+    for _ in wall_drag(model):
+        kept = city_to_svg(model, PALETTE)
+        for key in ("_way_outlines", "_way_bends", "_way_obstacles",
+                    "_way_roads", "_ward_drawings"):
+            model.__dict__.pop(key, None)
+        assert city_to_svg(model, PALETTE) == kept
+
+
+def test_only_moved_buildings_get_new_outlines():
+    model = Model(24, 4, walls=True)
+    before = {id(entry): entry for entry, _ in streets._outlines(model)}
+    for editor in wall_drag(model, 3):
+        pass
+    after = streets._outlines(model)
+    remade = [has_moved for entry, has_moved in after
+              if id(entry) not in before]
+    assert remade
+    # A building nudged and put back may be worked out again, but the rest
+    # that never moved keep their outlines.
+    assert sum(1 for has_moved in remade if not has_moved) <= len(after) // 20

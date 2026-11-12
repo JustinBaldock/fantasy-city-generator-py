@@ -173,21 +173,37 @@ def _wall_features(wall, large, palette, prefix):
     return [gates, towers]
 
 
-def _ward_drawing(ward):
-    """What one ward draws, by the name of the layer it goes in."""
+def _ward_drawing(ward, before, after):
+    """What one ward draws, by the name of the layer it goes in.
+
+    before holds each building's points from last time, with where it was,
+    and only buildings that have moved since are worked out again. after
+    gets them for next time.
+    """
+    def points(polygon):
+        mark = streets._place_of(polygon)
+        old = before.get(id(polygon))
+        if old is not None and old[0] is polygon and old[1] == mark:
+            found = old[2]
+        else:
+            found = (_xy(polygon), _pairs(polygon.room_walls())
+                     if isinstance(polygon, GnomeHome) else None)
+        after[id(polygon)] = (polygon, mark, found)
+        return found
+
     gardens = []
     garden_trees = []
     room_walls = []
-    built = []
+    shapes = []
     for polygon in ward.geometry:
         if isinstance(polygon, Plot):
-            gardens.append(_xy(polygon))
+            gardens.append(points(polygon)[0])
             garden_trees += polygon.trees
             polygon = polygon.house
-        if isinstance(polygon, GnomeHome):
-            room_walls += _pairs(polygon.room_walls())
-        built.append(polygon)
-    shapes = [_xy(polygon) for polygon in built]
+        outline, walls = points(polygon)
+        if walls is not None:
+            room_walls += walls
+        shapes.append(outline)
     drawing = {"Plots": gardens, "Garden trees": garden_trees,
                "Room walls": room_walls,
                "Green trees": [tree for green in ward.geometry
@@ -197,7 +213,7 @@ def _ward_drawing(ward):
         drawing["Castle"] = shapes
     elif isinstance(ward, Cathedral):
         drawing["Buildings"] = shapes
-        drawing["Temple"] = [_xy(polygon) for polygon in ward.landmarks]
+        drawing["Temple"] = [points(polygon)[0] for polygon in ward.landmarks]
     elif isinstance(ward, _BUILDING_WARDS):
         drawing["Buildings"] = shapes
     elif isinstance(ward, Park):
@@ -217,9 +233,12 @@ def ward_drawings(model):
         ward = patch.ward
         held = kept.get(ward)
         if held is None or held[1] != ward.edits:
-            held = (ward, ward.edits, _ward_drawing(ward))
+            after = {}
+            drawing = _ward_drawing(
+                ward, held[3] if held is not None else {}, after)
+            held = (ward, ward.edits, drawing, after)
             kept[ward] = held
-        found.append(held)
+        found.append(held[:3])
     return found
 
 

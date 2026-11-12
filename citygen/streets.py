@@ -59,8 +59,9 @@ LINKED = 0.5  # A way this close to a bridge end already meets it.
 def _outlines(model):
     """Each building's outline entry, and whether it has moved.
 
-    They're kept on the model ward by ward, and a ward's are made again only
-    when editing has changed it since, which is few while dragging. An
+    They're kept on the model ward by ward. A ward editing has changed since
+    is looked over again, but only its buildings that have actually moved
+    are worked out again, which is few even when a wall pushes many. An
     unchanged building gives back the very same entry.
     """
     kept = model.__dict__.setdefault("_way_outlines", {})
@@ -71,12 +72,38 @@ def _outlines(model):
             continue
         held = kept.get(ward)
         if held is None or held[0] != ward.edits:
-            held = (ward.edits, [_outline(model, polygon) for polygon in
-                                 list(ward.geometry) + list(ward.landmarks)
-                                 if len(polygon) >= 3])
+            before = held[2] if held is not None else {}
+            items = []
+            by_polygon = {}
+            for polygon in list(ward.geometry) + list(ward.landmarks):
+                if len(polygon) < 3:
+                    continue
+                mark = _place_of(polygon)
+                old = before.get(id(polygon))
+                if old is not None and old[0] is polygon and old[1] == mark:
+                    item = old[2]
+                else:
+                    item = _outline(model, polygon)
+                by_polygon[id(polygon)] = (polygon, mark, item)
+                items.append(item)
+            held = (ward.edits, items, by_polygon)
             kept[ward] = held
         found += held[1]
     return found
+
+
+def _place_of(polygon):
+    """Where a building is, enough to tell whether it has moved.
+
+    Editing only ever slides a building or puts back corners it had before,
+    so its shape never changes, and its first point and count of points
+    tell where it is. A plot's house is part of it.
+    """
+    house = getattr(polygon, "house", None)
+    first = polygon[0]
+    if house is None:
+        return first.x, first.y, len(polygon)
+    return first.x, first.y, len(polygon), house[0].x, house[0].y, len(house)
 
 
 def _outline(model, polygon):
@@ -250,6 +277,52 @@ def _push_at(obstacles, x, y, tx, ty, half, side):
         else:
             shift += min(low for low, _ in found) - half - BEND_GAP
     return shift
+
+
+BENDS_KEPT = 5_000  # The most bent ways kept for reuse.
+
+
+def _entries_near(obstacles, left, top, right, bottom):
+    """The entries whose boxes reach into a box, by id."""
+    found = {}
+    for i in range(int(left // CELL), int(right // CELL) + 1):
+        for j in range(int(top // CELL), int(bottom // CELL) + 1):
+            for entry in obstacles.grid.get((i, j), ()):
+                if (entry[3] <= right and entry[5] >= left
+                        and entry[4] <= bottom and entry[6] >= top):
+                    found[id(entry)] = entry
+    return found
+
+
+def _bend_kept(model, line, moved, half, everything):
+    """bend_around, reusing the answer for a way whose line and nearby
+    buildings are just as they were last time.
+
+    Only buildings within reach of a bend can change it, and an unchanged
+    building keeps the very same entry, so the line and the entries near it
+    say whether the answer can be reused.
+    """
+    margin = half + MAX_BEND + 2.0
+    left = min(x for x, _ in line) - margin
+    right = max(x for x, _ in line) + margin
+    top = min(y for _, y in line) - margin
+    bottom = max(y for _, y in line) + margin
+    near_moved = _entries_near(moved, left, top, right, bottom)
+    if not near_moved:
+        return list(line)
+    near = _entries_near(everything, left, top, right, bottom)
+    key = (tuple(line), half, tuple(sorted(near_moved)), tuple(sorted(near)))
+    kept = model.__dict__.setdefault("_way_bends", {})
+    held = kept.get(key)
+    if held is None:
+        if len(kept) > BENDS_KEPT:
+            kept.clear()
+        # The entries are held too, so their ids can't be reused while the
+        # answer is kept.
+        held = (bend_around(line, moved, half, everything),
+                list(near_moved.values()) + list(near.values()))
+        kept[key] = held
+    return list(held[0])
 
 
 def bend_around(line, moved, half, everything=None):
@@ -442,6 +515,30 @@ def _on_water(model, x, y):
     return _Water.of(model, RIVER_ROOM, bridges=False).covers(x, y)
 
 
+class _Inside:
+    """Whether points are inside a polygon, by the same ray casting as
+    Polygon.contains_point, with the edges sorted into bands across the
+    map so that each point only looks at the edges level with it."""
+
+    BAND = 4.0
+
+    def __init__(self, polygon):
+        self.bands = {}
+        for v0, v1 in polygon.edges():
+            low = min(v0.y, v1.y)
+            high = max(v0.y, v1.y)
+            for band in range(int(low // self.BAND), int(high // self.BAND) + 1):
+                self.bands.setdefault(band, []).append((v0, v1))
+
+    def __call__(self, x, y):
+        inside = False
+        for v0, v1 in self.bands.get(int(y // self.BAND), ()):
+            if (v0.y > y) != (v1.y > y):
+                if x < (v1.x - v0.x) * (y - v0.y) / (v1.y - v0.y) + v0.x:
+                    inside = not inside
+        return inside
+
+
 def _wall_streets(model, obstacles):
     """Stretches of street just inside the city wall, where there's room."""
     wall = model.wall
@@ -475,6 +572,8 @@ def _wall_streets(model, obstacles):
         offset.append((shape[i].x + nx * reach, shape[i].y + ny * reach))
 
     castle = model.citadel.ward.wall.shape if model.citadel else None
+    in_wall = _Inside(shape)
+    in_castle = _Inside(castle) if castle is not None else None
     runs = []
     run = []
     for i in range(count):
@@ -491,10 +590,9 @@ def _wall_streets(model, obstacles):
             y = ay + (by - ay) * k / steps
             clear = (obstacles.distance(x, y, WALL_STREET_ROOM)
                      >= WALL_STREET_ROOM
-                     and shape.contains_point(Point(x, y))
+                     and in_wall(x, y)
                      and not _on_water(model, x, y)
-                     and (castle is None
-                          or not castle.contains_point(Point(x, y))))
+                     and (in_castle is None or not in_castle(x, y)))
             if clear:
                 run.append((x, y))
             elif run:
@@ -831,11 +929,11 @@ def ways(model):
     # Ways stop at the water's edge unless they're on a bridge.
     water = _Water.of(model)
     roads = [piece for line in main
-             for piece in trim(bend_around(line, moved, ROAD_HALF, everything),
-                               water)]
+             for piece in trim(_bend_kept(model, line, moved, ROAD_HALF,
+                                          everything), water)]
     streets = [piece for line in side
-               for piece in trim(bend_around(line, moved, STREET_HALF,
-                                             everything), water)]
+               for piece in trim(_bend_kept(model, line, moved, STREET_HALF,
+                                            everything), water)]
     # Streets stop at the edge of a road instead of running onto it. The
     # roads seldom change while editing, so they're kept with their trims.
     key = tuple(map(tuple, roads))

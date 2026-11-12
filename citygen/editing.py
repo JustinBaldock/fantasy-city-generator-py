@@ -50,11 +50,6 @@ MAX_PUSHES_PER_MOVE = 2000  # The shoving allowed for one move of the pointer.
 RETRY_DISTANCE = 1.0  # How far the pointer must go before a stuck drag retries.
 
 
-def _project(hull, ax, ay):
-    values = [x * ax + y * ay for x, y in hull]
-    return min(values), max(values)
-
-
 def overlap(hull_a, hull_b):
     """How to push b clear of a, as (dx, dy), or None if they don't overlap.
 
@@ -75,8 +70,14 @@ def overlap(hull_a, hull_b):
             ax /= size
             ay /= size
 
-            min_a, max_a = _project(hull_a, ax, ay)
-            min_b, max_b = _project(hull_b, ax, ay)
+            # Where each hull lies along the direction, written out here
+            # since this runs many thousands of times a drag.
+            values = [x * ax + y * ay for x, y in hull_a]
+            min_a = min(values)
+            max_a = max(values)
+            values = [x * ax + y * ay for x, y in hull_b]
+            min_b = min(values)
+            max_b = max(values)
             depth = min(max_a, max_b) - max(min_a, min_b)
             if depth <= TOUCHING:
                 return None
