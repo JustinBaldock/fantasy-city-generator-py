@@ -39,7 +39,7 @@ The controls are down the right of the window, in boxes for the map, the town, t
 ### Map size and seed
 
 - Press Return, or New map, for a new map at the same size.
-- Press a size button for a new map of that kind of settlement, or set the number of wards directly, from 1 to 100. A town of 100 wards takes about five seconds to build, and moving its buildings is slower than in a smaller town.
+- Press a size button for a new map of that kind of settlement, or set the number of wards directly, from 1 to 100. A town of 100 wards takes about five seconds to build. Dragging a building redraws about 10 to 18 times a second even in a town of 100 wards, but dragging its wall, which pushes hundreds of buildings at once, is slower, about 3 times a second.
 - To get a map back, type its seed and press Return.
 
 | Size | Wards |
@@ -268,7 +268,8 @@ Save keeps the location in a JSON file, every piece exactly where you left it, a
 - Roads and streets are worked out from the buildings each time the map is drawn, so they follow every edit and undo without being saved anywhere.
 - Importing makes a town again from its settings and then moves its walls, roads and buildings to match the file, rather than rebuilding it from the coordinates alone. This keeps the town fully editable. `citygen/__init__.py` holds the app's version, which goes in every export. Bump it when a change could make the same settings give a different town.
 - The location generator reuses the city's drawing, export, countryside and gnome home code rather than copying it. A location is a flat list of pieces. Each keeps its shape in its own frame, so moving or turning one never changes its shape, and furrows, orchard rows and wood trees are worked out from each piece when it's drawn.
-- The window keeps the drawn map with a spare edge round it, so hovering and small pans don't redraw it, and big layers are drawn in small tiles, which Qt fills much faster.
+- The window keeps the drawn map with a spare edge round it, so hovering and small pans don't redraw it, and big layers are drawn in small tiles, which Qt fills much faster. What the wards draw is grouped ward by ward, in the window and in PNGs alike.
+- Dragging stays quick in big towns because little is worked out again. The editor only changes a building by placing it or sliding it, and each time it counts an edit on the building's ward, so drawing works out again only the wards whose count has changed, and the roads and streets reuse the outlines of the rest. Each group of shapes keeps its Qt path until it changes, and while dragging the window repaints only the part of the map that changed. A test checks a drag drawn this way against a full redraw. No building shares a point with a ward, wall or road, since editing moves those corners in place without counting an edit, and a test checks that too.
 
 ### Tests
 

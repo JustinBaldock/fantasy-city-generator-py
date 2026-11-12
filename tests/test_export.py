@@ -87,11 +87,12 @@ def test_kept_layers_draw_the_same_as_fresh_ones(qapp):
     palette = PALETTES["Default"]
     kept = {}
     first = qt_render.prepare(model, palette, kept)
-    assert set(kept) <= qt_render.FIXED_LAYERS and "Forest" in kept
+    whole = {key for key in kept if isinstance(key, str) and key != "changed"}
+    assert whole <= qt_render.FIXED_LAYERS and "Forest" in kept
     again = qt_render.prepare(model, palette, kept)
     fresh = qt_render.prepare(model, palette)
     assert len(first) == len(again) == len(fresh)
-    for (a, _, _), (b, _, _) in zip(again, fresh):
+    for (a, *_), (b, *_) in zip(again, fresh):
         assert a == b
 
 

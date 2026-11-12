@@ -118,6 +118,7 @@ class MapView(QWidget):
         self.pending_edge = None
         self._version = 0
         self._kept_layers = {}
+        self._changed = None
         self.show_scale_bar = True
         self._cache = None
         self._cache_key = None
@@ -139,6 +140,13 @@ class MapView(QWidget):
         """Redraw the city after something on it has changed."""
         self.prepared = qt_render.prepare(self.model, self.palette_colours,
                                           self._kept_layers)
+        # What has changed since the picture of the map was last drawn, so a
+        # drag can redraw just that. None means everything.
+        area = qt_render.changed_area(self._kept_layers)
+        if area is None or self._changed is None:
+            self._changed = None
+        else:
+            self._changed = self._changed.united(area)
         self._version += 1
         self.update()
 
@@ -213,6 +221,14 @@ class MapView(QWidget):
             dy = self.pan.y() - self._cache_pan.y()
             if abs(dx) <= spare_x and abs(dy) <= spare_y:
                 return self._cache, dx - spare_x, dy - spare_y
+        if (dragging and self._cache is not None and self._changed is not None
+                and self._cache_key[1:] == key[1:]
+                and self._cache_pan == self.pan):
+            # Only part of the map changed, so redraw just that part.
+            self._redraw_part(self._changed)
+            self._changed = QRectF()
+            self._cache_key = key
+            return self._cache, -spare_x, -spare_y
 
         picture = QPixmap(round((width + 2 * spare_x) * ratio),
                           round((height + 2 * spare_y) * ratio))
@@ -225,10 +241,33 @@ class MapView(QWidget):
         qt_render.paint(painter, self.prepared)
         painter.end()
 
+        self._changed = QRectF()
         self._cache = picture
         self._cache_key = key
         self._cache_pan = QPointF(self.pan)
         return picture, -spare_x, -spare_y
+
+    def _redraw_part(self, area):
+        """Draw again the part of the kept picture of the map that changed.
+
+        The part is widened to whole pixels, so its edges match the rest of
+        the picture exactly.
+        """
+        if area.isEmpty():
+            return
+        transform = self._transform()
+        pixels = transform.mapRect(area).toAlignedRect().adjusted(-2, -2, 2, 2)
+        painter = QPainter(self._cache)
+        painter.setClipRect(pixels)
+        painter.fillRect(pixels, QColor(self.palette_colours.paper))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setTransform(transform)
+        # A shape just outside can still smooth the pixels at the edge, so
+        # draw everything that reaches a little past it.
+        inverse, _ = transform.inverted()
+        reach = inverse.mapRect(QRectF(pixels.adjusted(-3, -3, 3, 3)))
+        qt_render.paint(painter, self.prepared, reach)
+        painter.end()
 
     def _paint_edit_marks(self, painter):
         def outline(building):

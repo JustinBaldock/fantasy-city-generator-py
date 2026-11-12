@@ -114,6 +114,9 @@ class Ward:
     # rectangles instead: shops, workshops, stores and government buildings.
     # Above 0, the ward's buildings also get plots in a burgage town.
     rectangle_share = 0.0
+    # How many times editing has changed this ward's buildings, so drawing
+    # can tell which wards to work out again.
+    edits = 0
 
     def __init__(self, model, patch):
         self.model = model

@@ -59,8 +59,9 @@ LINKED = 0.5  # A way this close to a bridge end already meets it.
 def _outlines(model):
     """Each building's outline entry, and whether it has moved.
 
-    The outlines are kept on the model between drawings and only made again
-    for buildings that have moved since, which is few while editing.
+    They're kept on the model ward by ward, and a ward's are made again only
+    when editing has changed it since, which is few while dragging. An
+    unchanged building gives back the very same entry.
     """
     kept = model.__dict__.setdefault("_way_outlines", {})
     found = []
@@ -68,21 +69,24 @@ def _outlines(model):
         ward = patch.ward
         if isinstance(ward, Market):
             continue
-        for polygon in list(ward.geometry) + list(ward.landmarks):
-            if len(polygon) < 3:
-                continue
-            footprint = getattr(polygon, "house", polygon)
-            spot = (footprint[0].x, footprint[0].y, len(footprint))
-            entry = kept.get(id(footprint))
-            if entry is None or entry[0] != spot:
-                hull = convex_hull([(v.x, v.y) for v in footprint])
-                xs = [x for x, _ in hull]
-                ys = [y for _, y in hull]
-                entry = (spot, (hull, sum(xs) / len(xs), sum(ys) / len(ys),
-                                min(xs), min(ys), max(xs), max(ys)))
-                kept[id(footprint)] = entry
-            found.append((entry[1], model.has_moved(polygon)))
+        held = kept.get(ward)
+        if held is None or held[0] != ward.edits:
+            held = (ward.edits, [_outline(model, polygon) for polygon in
+                                 list(ward.geometry) + list(ward.landmarks)
+                                 if len(polygon) >= 3])
+            kept[ward] = held
+        found += held[1]
     return found
+
+
+def _outline(model, polygon):
+    footprint = getattr(polygon, "house", polygon)
+    hull = convex_hull([(v.x, v.y) for v in footprint])
+    xs = [x for x, _ in hull]
+    ys = [y for _, y in hull]
+    entry = (hull, sum(xs) / len(xs), sum(ys) / len(ys), min(xs), min(ys),
+             max(xs), max(ys))
+    return entry, model.has_moved(polygon)
 
 
 class _Obstacles:
@@ -95,10 +99,52 @@ class _Obstacles:
         self.grid = {}
         self.entries = entries
         for entry in entries:
-            hull, _, _, left, top, right, bottom = entry
-            for i in range(int(left // CELL), int(right // CELL) + 1):
-                for j in range(int(top // CELL), int(bottom // CELL) + 1):
-                    self.grid.setdefault((i, j), []).append(entry)
+            self._add(entry)
+
+    @staticmethod
+    def _cells(entry):
+        _, _, _, left, top, right, bottom = entry
+        return [(i, j) for i in range(int(left // CELL), int(right // CELL) + 1)
+                for j in range(int(top // CELL), int(bottom // CELL) + 1)]
+
+    def _add(self, entry):
+        for cell in self._cells(entry):
+            self.grid.setdefault(cell, []).append(entry)
+
+    def _remove(self, entry):
+        for cell in self._cells(entry):
+            found = self.grid.get(cell, [])
+            for k, held in enumerate(found):
+                if held is entry:
+                    del found[k]
+                    break
+
+    def update(self, entries):
+        """Change to a new list of entries, moving only those that changed.
+
+        Searching it gives the same buildings either way, since nothing that
+        uses it depends on their order.
+        """
+        old = {id(entry): entry for entry in self.entries}
+        new = {id(entry): entry for entry in entries}
+        for key, entry in old.items():
+            if key not in new:
+                self._remove(entry)
+        for key, entry in new.items():
+            if key not in old:
+                self._add(entry)
+        self.entries = entries
+
+    @staticmethod
+    def of(model, entries):
+        """Every building, kept on the model and updated between drawings."""
+        held = model.__dict__.get("_way_obstacles")
+        if held is None:
+            held = _Obstacles(entries)
+            model.__dict__["_way_obstacles"] = held
+        else:
+            held.update(entries)
+        return held
 
     def near(self, x, y, reach):
         found = {}
@@ -509,12 +555,27 @@ def _edge_between(roads, inside, outside):
     return outside
 
 
+TRIMS_KEPT = 20_000  # The most trimmed lines kept for reuse.
+
+
 def trim(line, roads):
     """A line with the parts that roads covers taken out, as separate lines.
 
     roads is anything with a covers(x, y) and a grid, such as the roads or
-    the river.
+    the river. The answers are kept on it, since most lines are the same
+    from one drawing to the next.
     """
+    kept = roads.__dict__.setdefault("_trims", {})
+    key = tuple(line)
+    found = kept.get(key)
+    if found is None:
+        if len(kept) > TRIMS_KEPT:
+            kept.clear()
+        found = kept[key] = _trim(line, roads)
+    return [list(piece) for piece in found]
+
+
+def _trim(line, roads):
     if not _grid_touches(roads.grid, line):
         return [list(line)]
     points = []
@@ -762,7 +823,7 @@ def ways(model):
     """
     outlines = _outlines(model)
     moved = _Obstacles([entry for entry, has_moved in outlines if has_moved])
-    everything = _Obstacles([entry for entry, _ in outlines])
+    everything = _Obstacles.of(model, [entry for entry, _ in outlines])
     ends = _bridge_ends(model)
     main = [onto_bridges(line, ends) for line in _main_ways(model)]
     side = [onto_bridges(line, ends) for line in _side_streets(model)]
@@ -775,8 +836,14 @@ def ways(model):
     streets = [piece for line in side
                for piece in trim(bend_around(line, moved, STREET_HALF,
                                              everything), water)]
-    # Streets stop at the edge of a road instead of running onto it.
-    drawn = _Roads(roads)
+    # Streets stop at the edge of a road instead of running onto it. The
+    # roads seldom change while editing, so they're kept with their trims.
+    key = tuple(map(tuple, roads))
+    held = model.__dict__.get("_way_roads")
+    if held is None or held[0] != key:
+        held = (key, _Roads(roads))
+        model.__dict__["_way_roads"] = held
+    drawn = held[1]
     streets = [piece for line in streets for piece in trim(line, drawn)]
     walls = [piece for line in _wall_streets(model, everything)
              for piece in trim(line, drawn)

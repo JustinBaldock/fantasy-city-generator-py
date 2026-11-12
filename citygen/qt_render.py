@@ -1,7 +1,5 @@
 """Drawing the map's layers with Qt, for the screen and for PNG files."""
 
-from dataclasses import replace
-
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import (
     QBrush,
@@ -27,10 +25,11 @@ _JOINS = {"miter": Qt.PenJoinStyle.MiterJoin, "round": Qt.PenJoinStyle.RoundJoin
 
 
 def _tiles(layer):
-    """Split a big layer into one layer for each square of map.
+    """Split a big layer into a group of shapes for each square of map.
 
     Each shape goes by its first point. Shapes in one layer share a style, so
     drawing them in groups looks the same as drawing them all at once.
+    Returns (square, polygons, polylines, circles) for each group.
     """
     if layer.circles:
         groups = {}
@@ -38,33 +37,34 @@ def _tiles(layer):
             x, y, _ = circle
             groups.setdefault((x // CIRCLE_TILE, y // CIRCLE_TILE),
                               []).append(circle)
-        return [replace(layer, circles=group) for group in groups.values()]
+        return [(square, (), (), group) for square, group in groups.items()]
 
     if len(layer.polygons) + len(layer.polylines) < TILE_FROM:
-        return [layer]
+        return [(None, layer.polygons, layer.polylines, ())]
     groups = {}
-    for kind in ("polygons", "polylines"):
-        for shape in getattr(layer, kind):
+    for kind, shapes in ((0, layer.polygons), (1, layer.polylines)):
+        for shape in shapes:
             x, y = shape[0]
             group = groups.setdefault((x // SHAPE_TILE, y // SHAPE_TILE),
-                                      {"polygons": [], "polylines": []})
+                                      ([], []))
             group[kind].append(shape)
-    return [replace(layer, **group) for group in groups.values()]
+    return [(square, polygons, polylines, ())
+            for square, (polygons, polylines) in groups.items()]
 
 
-def _path(layer):
+def _path(polygons, polylines, circles):
     path = QPainterPath()
     path.setFillRule(Qt.FillRule.WindingFill)
-    for polygon in layer.polygons:
+    for polygon in polygons:
         path.moveTo(*polygon[0])
         for x, y in polygon[1:]:
             path.lineTo(x, y)
         path.closeSubpath()
-    for line in layer.polylines:
+    for line in polylines:
         path.moveTo(*line[0])
         for x, y in line[1:]:
             path.lineTo(x, y)
-    for x, y, r in layer.circles:
+    for x, y, r in circles:
         path.addEllipse(QRectF(x - r, y - r, r * 2, r * 2))
     return path
 
@@ -91,15 +91,77 @@ FIXED_LAYERS = frozenset({
 })
 
 
-def _prepare_layer(layer):
+def _contents(polygons, polylines, circles):
+    """What a group of shapes holds, to tell whether it has changed.
+
+    Unchanged buildings bring the very same lists each time, which Python
+    compares at once, and others are compared point by point.
+    """
+    return (tuple(polygons), tuple(polylines), tuple(circles))
+
+
+def _reach(path, layer):
+    """The part of the map a path can mark, with room for its outline."""
+    # A mitred corner can reach out up to its limit, three times half the
+    # line's width, so leave room for that.
+    margin = layer.width * 1.5 + 0.05
+    return path.controlPointRect().adjusted(-margin, -margin, margin, margin)
+
+
+def _prepare_layer(layer, drawn=None, changed=None):
+    """The layer's paths, one for each square of map, as (path, pen, brush,
+    reach), where reach is the part of the map the path can mark.
+
+    drawn holds the paths made last time for each square of this layer, with
+    what each held. A square holding just what it held then keeps its path,
+    so dragging one building only makes paths again where something moved.
+    The parts of the map that changed are added to the list changed.
+    """
     pen = _pen(layer)
     brush = _brush(layer)
-    return [(_path(part), pen, brush) for part in _tiles(layer)
-            if part.polygons or part.polylines or part.circles]
+    prepared = []
+    fresh = {}
+    if layer.groups is not None:
+        # Drawn ward by ward, and a ward is the same until it's edited, so
+        # its edit count tells whether it has changed.
+        parts = [(ward, (edits,), polygons, polylines, circles)
+                 for ward, edits, polygons, polylines, circles in layer.groups]
+    else:
+        parts = [(square, None, polygons, polylines, circles)
+                 for square, polygons, polylines, circles in _tiles(layer)]
+    for square, token, polygons, polylines, circles in parts:
+        if not (polygons or polylines or circles):
+            continue
+        if drawn is None:
+            path = _path(polygons, polylines, circles)
+            reach = _reach(path, layer)
+        else:
+            contents = (token if token is not None
+                        else _contents(polygons, polylines, circles))
+            before = drawn.get(square)
+            if before is not None and before[0] == contents:
+                _, path, reach = before
+            else:
+                path = _path(polygons, polylines, circles)
+                reach = _reach(path, layer)
+                if changed is not None:
+                    changed.append(reach)
+                    if before is not None:
+                        changed.append(before[2])
+            fresh[square] = (contents, path, reach)
+        prepared.append((path, pen, brush, reach))
+    if drawn is not None:
+        if changed is not None:
+            changed += [held[2] for square, held in drawn.items()
+                        if square not in fresh]
+        drawn.clear()
+        drawn.update(fresh)
+    return prepared
 
 
 def prepare_layers(layers):
-    """Turn any set of layers into paths that Qt can redraw quickly."""
+    """Turn any set of layers into paths that Qt can redraw quickly, as
+    (path, pen, brush, reach) for each."""
     prepared = []
     for layer in layers:
         prepared += _prepare_layer(layer)
@@ -109,23 +171,56 @@ def prepare_layers(layers):
 def prepare(model, palette, kept=None):
     """Turn a city into paths, which Qt can then redraw quickly.
 
-    kept is a dict for the fixed layers, for a view that redraws one city in
-    one palette many times as it's edited. The first call fills it, and later
-    ones use what it holds instead of making those layers again.
+    kept is a dict for a view that redraws one city many times as it's
+    edited. It holds the fixed layers whole, and the paths of each square of
+    the others. The first call fills it, and later ones use what it holds
+    instead of making again what hasn't changed.
     """
     prepared = []
-    for layer in build_layers(model, palette):
-        if kept is not None and layer.name in FIXED_LAYERS:
+    # What changed since the last call, or None for everything.
+    changed = [] if kept else None
+    # Drawn ward by ward everywhere, so the window and a PNG match, since
+    # where shapes touch, which one is drawn last shows its border whole.
+    for layer in build_layers(model, palette, grouped=True):
+        if kept is None:
+            prepared += _prepare_layer(layer)
+        elif layer.name in FIXED_LAYERS:
             if layer.name not in kept:
                 kept[layer.name] = _prepare_layer(layer)
+                changed = None
             prepared += kept[layer.name]
         else:
-            prepared += _prepare_layer(layer)
+            # The other layers change with editing, but mostly only in a
+            # few squares, so each square's path is kept until it changes.
+            style = ("squares", layer.name, layer.fill, layer.stroke,
+                     layer.width, layer.cap, layer.join)
+            if style not in kept:
+                changed = None
+            prepared += _prepare_layer(layer, kept.setdefault(style, {}),
+                                       changed)
+    if kept is not None:
+        kept["changed"] = changed
     return prepared
 
 
-def paint(painter, prepared):
-    for path, pen, brush in prepared:
+def changed_area(kept):
+    """The part of the map the last prepare changed, as a QRectF in map
+    units, an empty one if nothing changed, or None if it can't say."""
+    changed = kept.get("changed")
+    if changed is None:
+        return None
+    area = QRectF()
+    for rect in changed:
+        area = area.united(rect)
+    return area
+
+
+def paint(painter, prepared, area=None):
+    """Draw prepared paths, or only those that reach into an area of the map,
+    a QRectF, when redrawing just that part."""
+    for path, pen, brush, reach in prepared:
+        if area is not None and not reach.intersects(area):
+            continue
         painter.setPen(pen)
         painter.setBrush(brush)
         painter.drawPath(path)
@@ -196,5 +291,5 @@ def save_layers_png(layers, extent, palette, path, pixels=3000,
 
 
 def save_png(model, palette, path, pixels=3000, show_scale_bar=True):
-    save_layers_png(build_layers(model, palette), map_extent(model), palette,
-                    path, pixels, show_scale_bar)
+    save_layers_png(build_layers(model, palette, grouped=True),
+                    map_extent(model), palette, path, pixels, show_scale_bar)

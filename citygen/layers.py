@@ -114,6 +114,10 @@ class Layer:
     polygons: list = field(default_factory=list)
     polylines: list = field(default_factory=list)
     circles: list = field(default_factory=list)
+    # When asked for, a layer drawn ward by ward holds its shapes here
+    # instead, as (ward, edits, polygons, polylines, circles) for each ward,
+    # so a window can redraw only the wards that editing has changed.
+    groups: list = None
 
 
 def _xy(polygon):
@@ -169,8 +173,62 @@ def _wall_features(wall, large, palette, prefix):
     return [gates, towers]
 
 
-def build_layers(model, palette):
-    """Everything on the map, in drawing order."""
+def _ward_drawing(ward):
+    """What one ward draws, by the name of the layer it goes in."""
+    gardens = []
+    garden_trees = []
+    room_walls = []
+    built = []
+    for polygon in ward.geometry:
+        if isinstance(polygon, Plot):
+            gardens.append(_xy(polygon))
+            garden_trees += polygon.trees
+            polygon = polygon.house
+        if isinstance(polygon, GnomeHome):
+            room_walls += _pairs(polygon.room_walls())
+        built.append(polygon)
+    shapes = [_xy(polygon) for polygon in built]
+    drawing = {"Plots": gardens, "Garden trees": garden_trees,
+               "Room walls": room_walls,
+               "Green trees": [tree for green in ward.geometry
+                               if isinstance(green, Green)
+                               for tree in green.trees]}
+    if isinstance(ward, Castle):
+        drawing["Castle"] = shapes
+    elif isinstance(ward, Cathedral):
+        drawing["Buildings"] = shapes
+        drawing["Temple"] = [_xy(polygon) for polygon in ward.landmarks]
+    elif isinstance(ward, _BUILDING_WARDS):
+        drawing["Buildings"] = shapes
+    elif isinstance(ward, Park):
+        drawing["Greens"] = shapes
+    return drawing
+
+
+def ward_drawings(model):
+    """What each ward draws, as (ward, edits, drawing), in the wards' order.
+
+    They're kept on the model, and a ward is worked out again only when
+    editing has changed it since, which is few while dragging.
+    """
+    kept = model.__dict__.setdefault("_ward_drawings", {})
+    found = []
+    for patch in model.patches:
+        ward = patch.ward
+        held = kept.get(ward)
+        if held is None or held[1] != ward.edits:
+            held = (ward, ward.edits, _ward_drawing(ward))
+            kept[ward] = held
+        found.append(held)
+    return found
+
+
+def build_layers(model, palette, grouped=False):
+    """Everything on the map, in drawing order.
+
+    grouped puts what the wards draw in each layer's groups, ward by ward,
+    for a window to redraw only what editing changes.
+    """
     road_lines, street_lines, wall_streets = streets.ways(model)
     roads = [_rounded(road) for road in road_lines]
     layers = [
@@ -185,43 +243,30 @@ def build_layers(model, palette):
         layers.append(Layer("Sea", fill=palette.water,
                             polygons=[_xy(model.sea)]))
 
-    buildings = []
-    parks = []
-    castles = []
-    temples = []
-    room_walls = []
-    gardens = []
-    garden_trees = []
-    for patch in model.patches:
-        ward = patch.ward
-        built = []
-        for polygon in ward.geometry:
-            if isinstance(polygon, Plot):
-                gardens.append(_xy(polygon))
-                garden_trees += polygon.trees
-                polygon = polygon.house
-            if isinstance(polygon, GnomeHome):
-                room_walls += _pairs(polygon.room_walls())
-            built.append(polygon)
-        shapes = [_xy(polygon) for polygon in built]
-        if isinstance(ward, Castle):
-            castles += shapes
-        elif isinstance(ward, Cathedral):
-            buildings += shapes
-            temples += [_xy(polygon) for polygon in ward.landmarks]
-        elif isinstance(ward, _BUILDING_WARDS):
-            buildings += shapes
-        elif isinstance(ward, Park):
-            parks += shapes
+    drawings = ward_drawings(model)
 
-    layers.append(Layer("Greens", fill=palette.green, polygons=parks))
-    layers.append(Layer("Green trees", fill=palette.forest, circles=[
-        tree for patch in model.patches for green in patch.ward.geometry
-        if isinstance(green, Green) for tree in green.trees]))
-    layers.append(Layer("Plots", fill=palette.garden, stroke=palette.medium,
-                        width=PLOT_BORDER, polygons=gardens))
-    layers.append(Layer("Garden trees", fill=palette.forest,
-                        circles=garden_trees))
+    def by_ward(name, kind, source=None, **style):
+        """A layer of what the wards draw, one group for each ward."""
+        source = source or name
+        layer = Layer(name, **style)
+        if grouped:
+            layer.groups = []
+            for ward, edits, drawing in drawings:
+                shapes = drawing.get(source, ())
+                parts = {"polygons": (), "polylines": (), "circles": ()}
+                parts[kind] = shapes
+                layer.groups.append((ward, edits, parts["polygons"],
+                                     parts["polylines"], parts["circles"]))
+        else:
+            setattr(layer, kind, [shape for _, _, drawing in drawings
+                                  for shape in drawing.get(source, ())])
+        return layer
+
+    layers.append(by_ward("Greens", "polygons", fill=palette.green))
+    layers.append(by_ward("Green trees", "circles", fill=palette.forest))
+    layers.append(by_ward("Plots", "polygons", fill=palette.garden,
+                          stroke=palette.medium, width=PLOT_BORDER))
+    layers.append(by_ward("Garden trees", "circles", fill=palette.forest))
     # Over the gardens, since a way can cut across one to pass a house.
     layers += [
         Layer("Road edges", stroke=palette.medium,
@@ -232,16 +277,16 @@ def build_layers(model, palette):
               join="round", polylines=street_lines + [
                   _rounded(line) for line in wall_streets]),
     ]
-    layers.append(Layer("Buildings", fill=palette.light, stroke=palette.dark,
-                        width=NORMAL_STROKE, polygons=buildings))
-    layers.append(Layer("Room walls", stroke=palette.dark, width=NORMAL_STROKE,
-                        cap="flat", polylines=room_walls))
+    layers.append(by_ward("Buildings", "polygons", fill=palette.light,
+                          stroke=palette.dark, width=NORMAL_STROKE))
+    layers.append(by_ward("Room walls", "polylines", stroke=palette.dark,
+                          width=NORMAL_STROKE, cap="flat"))
 
     # A heavy line drawn first, with the fill on top, leaves an outer outline.
-    layers.append(Layer("Castle outline", stroke=palette.dark,
-                        width=NORMAL_STROKE * 4, polygons=castles))
-    layers.append(Layer("Castle", fill=palette.light, polygons=castles))
-    layers.append(Layer("Temple", fill=palette.dark, polygons=temples))
+    layers.append(by_ward("Castle outline", "polygons", "Castle",
+                          stroke=palette.dark, width=NORMAL_STROKE * 4))
+    layers.append(by_ward("Castle", "polygons", fill=palette.light))
+    layers.append(by_ward("Temple", "polygons", fill=palette.dark))
 
     walls = []
     if model.wall is not None:

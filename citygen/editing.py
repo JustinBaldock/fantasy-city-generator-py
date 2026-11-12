@@ -158,7 +158,11 @@ def _bulge_share(along, grown):
 
 
 class Building:
-    """One building, and the convex outline used for collisions."""
+    """One building, and the convex outline used for collisions.
+
+    place and shift are the only ways editing changes a building, and both
+    count an edit on its ward, so drawing knows which wards have changed.
+    """
 
     __slots__ = ("polygon", "ward", "hull", "cells", "cx", "cy", "radius")
 
@@ -177,6 +181,7 @@ class Building:
         self._carry_house(corners[0][0] - first.x, corners[0][1] - first.y)
         self.polygon[:] = [Point(x, y) for x, y in corners]
         self._measure(corners)
+        self.ward.edits += 1
 
     def _carry_house(self, dx, dy):
         """Move what stands on a plot with it. Plots only ever slide."""
@@ -195,6 +200,7 @@ class Building:
         """Slide the building, which keeps its shape, so nothing is remeasured."""
         self._carry_house(dx, dy)
         self.polygon[:] = [Point(v.x + dx, v.y + dy) for v in self.polygon]
+        self.ward.edits += 1
         self.hull = [(x + dx, y + dy) for x, y in self.hull]
         self.cx += dx
         self.cy += dy
