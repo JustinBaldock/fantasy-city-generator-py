@@ -1,8 +1,16 @@
 import pytest
 
 from citygen.model import Model
-from citygen.population import describe, estimate, hectares, rounded
-from citygen.wards import Park
+from citygen.population import (
+    PEOPLE_PER_HECTARE,
+    _gnome_homes,
+    describe,
+    estimate,
+    gnomes_in,
+    hectares,
+    rounded,
+)
+from citygen.wards import Farm, Park
 
 
 def test_bigger_towns_hold_more_people():
@@ -18,10 +26,42 @@ def test_estimates_are_in_a_medieval_range(size, low, high):
     assert low <= estimate(Model(size, 7)) <= high
 
 
-def test_the_home_style_and_moved_buildings_dont_change_it():
-    people = estimate(Model(15, 7))
-    for style in ("classic", "gnome"):
-        assert estimate(Model(15, 7, home_style=style)) == people
+def test_burgage_plots_and_classic_houses_give_the_same_town():
+    assert estimate(Model(15, 7)) == estimate(Model(15, 7,
+                                                    home_style="classic"))
+
+
+def gnome_homes(model):
+    return [home for patch in model.patches
+            for home in _gnome_homes(patch.ward)]
+
+
+def test_gnome_homes_hold_4_to_16_and_8_on_average():
+    counts = [gnomes_in(home) for size in (9, 24) for seed in (1, 2, 3)
+              for home in gnome_homes(Model(size, seed, home_style="gnome"))]
+    assert min(counts) == 4 and max(counts) == 16
+    assert sum(counts) / len(counts) == pytest.approx(8, abs=0.4)
+
+
+def test_bigger_gnome_homes_hold_more():
+    homes = sorted(gnome_homes(Model(24, 7, home_style="gnome")),
+                   key=lambda home: abs(home.square))
+    counts = [gnomes_in(home) for home in homes]
+    assert counts == sorted(counts)
+
+
+def test_a_gnome_town_counts_its_homes():
+    model = Model(15, 7, home_style="gnome")
+    in_homes = sum(gnomes_in(home) for patch in model.patches
+                   if patch.within_city or isinstance(patch.ward, Farm)
+                   if patch.ward.homes or isinstance(patch.ward, Farm)
+                   for home in _gnome_homes(patch.ward))
+    elsewhere = sum(hectares(p) * PEOPLE_PER_HECTARE.get(type(p.ward), 150)
+                    for p in model.patches if p.within_city
+                    and not p.ward.homes and not isinstance(p.ward, Farm))
+    assert estimate(model) == round(in_homes + elsewhere)
+    # The shops, stores and barns among the homes hold no one.
+    assert estimate(model) < estimate(Model(15, 7))
 
 
 def test_greens_hold_no_one():
