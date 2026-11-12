@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, export, qt_render
+from . import __version__, export, population, qt_render
 from .editing import CityEditor
 from .geometry import GenerationError, Point
 from .layers import PALETTES, map_extent
@@ -604,6 +604,11 @@ class MainWindow(QMainWindow):
         self.seed_box.setKeyboardTracking(False)
         self.seed_box.setToolTip("The same seed and settings give the same map")
         form.addRow("Seed", self.seed_box)
+        self.population_label = QLabel()
+        self.population_label.setToolTip(
+            "Roughly how many people live in the town and on the farms round "
+            "it, from the land each kind of ward covers")
+        form.addRow("Est. pop.", self.population_label)
         self.walls_box = TriState()
         self.citadel_box = TriState()
         self.plaza_box = TriState()
@@ -854,8 +859,11 @@ class MainWindow(QMainWindow):
         self.built_state = self._control_state()
         self.view.set_city(model, self.palette(), self.editor)
         self._update_edit_controls()
+        people = population.describe(model)
+        self.population_label.setText(people)
         self.city_label.setText(
-            f"{size_name(model.size)}, {model.size} wards, seed {model.seed}")
+            f"{size_name(model.size)}, {model.size} wards, seed {model.seed}, "
+            f"est. pop. {people}")
 
     @staticmethod
     def _select(box, value):

@@ -411,3 +411,12 @@ def test_a_hamlet_can_be_made_from_the_window(window):
     window.size_box.setValue(MIN_SIZE)
     assert MIN_SIZE == 1
     assert window.model.size == 1
+
+
+def test_the_map_box_shows_an_estimated_population(window):
+    from citygen.population import describe
+
+    assert window.population_label.text() == describe(window.model)
+    assert f"est. pop. {describe(window.model)}" in window.city_label.text()
+    window.size_box.setValue(40)
+    assert window.population_label.text() == describe(window.model)

@@ -52,6 +52,8 @@ The controls are down the right of the window, in boxes for the map, the town, t
 | Large City | 24 to 39 |
 | Metropolis | 40 |
 
+Under the seed, Est. pop. gives a rough population for the town and the farms round it, also shown in the status bar. It comes from the land each kind of ward covers at the map's scale, at the densities of a walled medieval town: about 200 people a hectare in craftsmen's wards, twice that in slums, and far fewer in markets, temple closes and government wards, plus a household of eight on each farmstead. Greens hold no one. Because it goes by the land rather than by counting houses, the homes style and moving buildings don't change it. As a guide, a hamlet has about 100 people, a small town about 1,000, a small city 2,000 to 3,000 and a metropolis around 16,000, which suits the medieval world, where few cities passed 20,000.
+
 A hamlet is a farm or two. Its one or two wards hold a few houses, with farmsteads, fields and orchards round them, and it is laid out on as much land as a small town so there is countryside to farm. Hamlets have no plaza, since it would take their only ward, and a hamlet's castle is more of a manor, with its gate opening onto the houses.
 
 ### Town and countryside options
@@ -241,6 +243,7 @@ Save keeps the location in a JSON file, every piece exactly where you left it, a
 | `citygen/gnomes.py` | Gnome homes, and the rectangles and barns among them |
 | `citygen/countryside.py` | Wheat fields, orchards and forests |
 | `citygen/model.py` | Building a whole city |
+| `citygen/population.py` | The estimated population |
 | `citygen/streets.py` | The roads and streets as drawn, bent round moved buildings and joined to bridges |
 | `citygen/layers.py` | What a map draws, as plain data, the colour styles and the scale bar |
 | `citygen/export.py` | JSON and SVG, and importing JSON |
