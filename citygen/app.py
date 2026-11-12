@@ -46,6 +46,7 @@ from .model import (
     DEFAULT_ORCHARD_RATIO,
     DEFAULT_SIZE,
     FIELD_RATIOS,
+    MAX_ROADS,
     MAX_TEMPLES,
     MAX_SEED,
     MAX_SIZE,
@@ -65,7 +66,8 @@ SIZE_PRESETS = (
     ("Large Town", 10, 14),
     ("Small City", 15, 23),
     ("Large City", 24, 39),
-    ("Metropolis", 40, 40),
+    ("Metropolis", 40, 69),
+    ("Capital", 70, 100),
 )
 
 LOCKED_COLOUR = "#c0392b"
@@ -640,9 +642,13 @@ class MainWindow(QMainWindow):
         self.temple_count_box.setToolTip(
             "How many temples the town has, when it has any")
         self.roads_box = QComboBox()
-        self.roads_box.addItem("All gates", True)
-        self.roads_box.addItem("Two roads", False)
-        self.roads_box.setToolTip("How many roads lead out of town")
+        self.roads_box.addItem("All gates", None)
+        for count in range(1, MAX_ROADS + 1):
+            self.roads_box.addItem(str(count), count)
+        self.roads_box.setToolTip(
+            "How many roads lead out of town: one from every gate, or a "
+            "number, spread round the town. A town with too few gates for "
+            "them gets more gates")
         self.homes_box = QComboBox()
         self.homes_box.addItem("Burgage plots", "burgage")
         self.homes_box.addItem("Gnome", "gnome")
@@ -837,7 +843,7 @@ class MainWindow(QMainWindow):
                 greens=self.greens_box.currentData(),
                 coast=self.coast_box.currentData(),
                 river=self.river_box.currentData(),
-                hub=self.roads_box.currentData(),
+                roads=self.roads_box.currentData(),
                 sea=None if self.sea_box.value() < 0 else self.sea_box.value(),
                 fields=self.fields_box.currentData(),
                 forests=self.forests_box.currentData(),
@@ -883,7 +889,7 @@ class MainWindow(QMainWindow):
             "greens": self.greens_box, "coast": self.coast_box,
             "river": self.river_box, "fields": self.fields_box,
             "forests": self.forests_box, "orchards": self.orchards_box,
-            "hub": self.roads_box, "home_style": self.homes_box,
+            "roads": self.roads_box, "home_style": self.homes_box,
             "orchard_ratio": self.orchard_ratio_box,
             "temples": self.temple_count_box,
             "field_ratio": self.field_ratio_box,
@@ -895,6 +901,9 @@ class MainWindow(QMainWindow):
         self.seed_box.setValue(settings["seed"])
         sea = settings.get("sea")
         self.sea_box.setValue(-1 if sea is None else round(sea))
+        if settings.get("roads") is None and settings.get("hub") is False:
+            # Saved before the number of roads could be chosen.
+            settings = dict(settings, roads=2)
         for key, box in boxes.items():
             if key in settings:
                 self._select(box, settings[key])

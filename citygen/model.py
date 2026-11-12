@@ -17,6 +17,7 @@ from .geometry import (
     Polygon,
     distance,
     index_of,
+    max_by,
     min_by,
 )
 from .patch import Patch
@@ -41,7 +42,7 @@ from .wards import (
 )
 
 MIN_SIZE = 1
-MAX_SIZE = 40
+MAX_SIZE = 100
 # Towns smaller than SMALL_TOWN are laid out on as many points as a town of
 # that size, so there is still countryside round a hamlet. From that size up
 # the points are the original's, so those towns come out as they always have.
@@ -52,6 +53,7 @@ CASTLE_CHOICES = 6
 DEFAULT_SIZE = 15
 MAX_SEED = 2147483646
 MAX_ATTEMPTS = 500
+MAX_ROADS = 10
 HOME_STYLES = ("burgage", "gnome", "classic")
 # Parts of wheat field to each part of orchard, where there are both.
 ORCHARD_RATIOS = (10, 8, 4)
@@ -85,6 +87,12 @@ _ATTEMPT_FAILED = (
 )
 
 
+def _angle_between(a, b):
+    """The angle between two directions from the centre, 0 to pi."""
+    gap = abs(math.atan2(a.y, a.x) - math.atan2(b.y, b.x))
+    return min(gap, 2 * math.pi - gap)
+
+
 def spot_of(polygon):
     return tuple((v.x, v.y) for v in polygon)
 
@@ -102,7 +110,9 @@ def size_name(size):
         return "Small City"
     if size < 40:
         return "Large City"
-    return "Metropolis"
+    if size < 70:
+        return "Metropolis"
+    return "Capital"
 
 
 class Model:
@@ -112,7 +122,9 @@ class Model:
     can each be True or False to force that feature. None leaves it to the
     seed. temples is how many temples there are, when there are any.
 
-    hub False keeps only two roads out of town. sea is the compass bearing of
+    roads is how many roads lead out of town, 1 to MAX_ROADS, or None for
+    one from every gate. A town with fewer gates than that gets more gates.
+    hub False is the old way of asking for two. sea is the compass bearing of
     the coast in degrees, or None to leave it to the seed.
 
     home_style is one of HOME_STYLES. "burgage" puts each house at the street
@@ -120,7 +132,7 @@ class Model:
     "classic" fills each plot with its house, as the original does. It is
     never left to the seed.
 
-    coast, river, hub and the water's shape use their own random numbers, so
+    coast, river, roads and the water's shape use their own random numbers, so
     a city with no water is built exactly as the original would build it.
     """
 
@@ -129,7 +141,7 @@ class Model:
                  hub=True, sea=None, fields=None, forests=None,
                  home_style="burgage", orchards=None,
                  orchard_ratio=DEFAULT_ORCHARD_RATIO, temples=1,
-                 field_ratio=DEFAULT_FIELD_RATIO):
+                 field_ratio=DEFAULT_FIELD_RATIO, roads=None):
         if home_style not in HOME_STYLES:
             raise ValueError(f"Unknown home style {home_style!r}")
         if seed > 0:
@@ -146,10 +158,18 @@ class Model:
             temple=temple, greens=greens, coast=coast, river=river, hub=hub,
             sea=sea, fields=fields, forests=forests, home_style=home_style,
             orchards=orchards, orchard_ratio=orchard_ratio, temples=temples,
-            field_ratio=field_ratio)
+            field_ratio=field_ratio, roads=roads)
         self.temple_option = temple
         self.greens_option = greens
-        self.hub = hub
+        if roads is not None and not 1 <= roads <= MAX_ROADS:
+            raise ValueError(f"A town has 1 to {MAX_ROADS} roads, not {roads}")
+        # Asking for a number of roads adds gates where there are too few.
+        # hub False, the old way of asking for two, never did, and still
+        # doesn't, so saved towns come back as they were.
+        self.more_gates = roads is not None
+        if roads is None and not hub:
+            roads = 2
+        self.roads_wanted = roads
         self.home_style = home_style
 
         self.features = random.Random(seed)
@@ -334,6 +354,8 @@ class Model:
         reserved += self.water_points
 
         self.border = CurtainWall(self.walls_needed, self, self.inner, reserved)
+        if self.more_gates and len(self.border.gates) < self.roads_wanted:
+            self.border.add_gates(self, self.roads_wanted, reserved)
         self.border.mask_water(self)
         if self.walls_needed:
             self.wall = self.border
@@ -399,8 +421,8 @@ class Model:
                 if road is not None:
                     self.roads.append(Polygon(road))
 
-        if not self.hub:
-            self._keep_two_roads()
+        if self.roads_wanted is not None:
+            self._keep_roads(self.roads_wanted)
 
         self._tidy_up_roads()
 
@@ -411,14 +433,27 @@ class Model:
                 if artery[i] not in fixed:
                     artery[i].set(smoothed[i])
 
-    def _keep_two_roads(self):
-        """Keep one road at random and the one leaving most opposite it."""
-        if len(self.roads) <= 2:
+    def _keep_roads(self, wanted):
+        """Keep one road at random, then each time the road leaving furthest
+        from those kept, until there are as many as wanted.
+
+        The second is the one leaving most opposite the first, as the "two
+        roads" choice always chose.
+        """
+        if len(self.roads) <= wanted:
             return
         first = self.features.choice(self.roads)
-        others = [road for road in self.roads if road is not first]
-        second = min_by(others, lambda road: first[0].dot(road[0]))
-        self.roads = [first, second]
+        kept = [first]
+        while len(kept) < wanted:
+            others = [road for road in self.roads
+                      if not any(road is k for k in kept)]
+            if len(kept) == 1:
+                chosen = min_by(others, lambda road: first[0].dot(road[0]))
+            else:
+                chosen = max_by(others, lambda road: min(
+                    _angle_between(road[0], k[0]) for k in kept))
+            kept.append(chosen)
+        self.roads = kept
 
     def _tidy_up_roads(self):
         """Join streets and roads into arteries with no repeated segments."""

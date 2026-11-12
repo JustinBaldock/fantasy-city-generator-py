@@ -31,7 +31,8 @@ def test_different_seeds_give_different_cities():
 @pytest.mark.parametrize("size, name", [
     (1, "Hamlet"), (2, "Hamlet"), (3, "Village"), (5, "Village"),
     (6, "Small Town"), (14, "Large Town"), (15, "Small City"),
-    (39, "Large City"), (40, "Metropolis"),
+    (39, "Large City"), (40, "Metropolis"), (69, "Metropolis"),
+    (70, "Capital"), (100, "Capital"),
 ])
 def test_size_names(size, name):
     assert size_name(size) == name
@@ -196,3 +197,55 @@ def test_a_hamlet_with_a_castle_has_a_way_in():
         castle = model.citadel.ward
         assert castle.wall.gates
         assert model.citadel.shape.compactness >= 0.75
+
+
+def _bearing_gaps(model):
+    bearings = sorted(math.atan2(road[0].y, road[0].x) for road in model.roads)
+    gaps = [b - a for a, b in zip(bearings, bearings[1:])]
+    return gaps + [2 * math.pi - (bearings[-1] - bearings[0])]
+
+
+@pytest.mark.parametrize("wanted", [1, 2, 4, 6, 8, 10])
+def test_a_big_inland_town_gets_the_roads_asked_for(wanted):
+    for seed in range(1, 4):
+        model = Model(60, seed, roads=wanted, coast=False, river=False)
+        assert len(model.roads) == wanted
+
+
+def test_roads_spread_round_the_town():
+    model = Model(40, 2, roads=6, coast=False, river=False)
+    assert len(model.roads) == 6
+    # No two leave within a fifth of an even share of the circle.
+    assert min(_bearing_gaps(model)) > 2 * math.pi / 6 / 5
+
+
+def test_a_small_town_gets_as_many_roads_as_its_walls_have_room_for():
+    for seed in range(1, 6):
+        model = Model(6, seed, roads=10)
+        assert 1 <= len(model.roads) <= 10
+        assert len(model.roads) >= len(Model(6, seed).roads)
+
+
+def test_all_gates_and_the_old_two_roads_are_unchanged():
+    from citygen.export import city_to_dict
+
+    def town(**options):
+        data = city_to_dict(Model(24, 4, **options))
+        del data["settings"]
+        return data
+
+    assert town() == town(roads=None)
+    two = town(hub=False)
+    assert len(Model(24, 4, hub=False).roads) <= 2
+    assert two == town(hub=False, roads=None)
+
+
+@pytest.mark.parametrize("roads", [0, 11])
+def test_road_counts_stay_in_range(roads):
+    with pytest.raises(ValueError):
+        Model(9, 3, roads=roads)
+
+
+def test_a_capital_of_a_hundred_wards_builds():
+    model = Model(100, 1, home_style="gnome")
+    assert len(model.inner) == 100

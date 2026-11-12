@@ -420,3 +420,19 @@ def test_the_map_box_shows_an_estimated_population(window):
     assert f"est. pop. {describe(window.model)}" in window.city_label.text()
     window.size_box.setValue(40)
     assert window.population_label.text() == describe(window.model)
+
+
+def test_the_roads_box_offers_all_gates_or_1_to_10(window):
+    box = window.roads_box
+    assert [box.itemText(i) for i in range(box.count())] == (
+        ["All gates"] + [str(n) for n in range(1, 11)])
+    window.size_box.setValue(40)
+    window.coast_box.setCurrentIndex(2)
+    window.river_box.setCurrentIndex(2)
+    box.setCurrentIndex(6)
+    assert window.model.roads_wanted == 6
+    assert len(window.model.roads) == 6
+
+
+def test_wards_go_up_to_a_hundred(window):
+    assert window.size_box.maximum() == 100

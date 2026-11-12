@@ -39,7 +39,7 @@ The controls are down the right of the window, in boxes for the map, the town, t
 ### Map size and seed
 
 - Press Return, or New map, for a new map at the same size.
-- Press a size button for a new map of that kind of settlement, or set the number of wards directly, from 1 to 40.
+- Press a size button for a new map of that kind of settlement, or set the number of wards directly, from 1 to 100. A town of 100 wards takes about five seconds to build, and moving its buildings is slower than in a smaller town.
 - To get a map back, type its seed and press Return.
 
 | Size | Wards |
@@ -50,9 +50,10 @@ The controls are down the right of the window, in boxes for the map, the town, t
 | Large Town | 10 to 14 |
 | Small City | 15 to 23 |
 | Large City | 24 to 39 |
-| Metropolis | 40 |
+| Metropolis | 40 to 69 |
+| Capital | 70 to 100 |
 
-Under the seed, Est. pop. gives a rough population for the town and the farms round it, also shown in the status bar. It comes from the land each kind of ward covers at the map's scale, at the densities of a walled medieval town: about 200 people a hectare in craftsmen's wards, twice that in slums, and far fewer in markets, temple closes and government wards, plus a household of eight on each farmstead. Greens hold no one. Because it goes by the land rather than by counting houses, burgage plots and classic houses give the same town the same population, and moving buildings doesn't change it. Gnome towns are counted by their homes instead. Each gnome home holds 4 to 16 gnomes, 8 in a home of the usual size and more in a bigger one, so the average is 8, and the shops, stores and barns among them hold no one. Gnomes live one home to a large garden plot, so a gnome town has fewer than half the people of the same town built for people. As a guide, a hamlet has about 100 people, a small town about 1,000, a small city 2,000 to 3,000 and a metropolis around 16,000, which suits the medieval world, where few cities passed 20,000.
+Under the seed, Est. pop. gives a rough population for the town and the farms round it, also shown in the status bar. It comes from the land each kind of ward covers at the map's scale, at the densities of a walled medieval town: about 200 people a hectare in craftsmen's wards, twice that in slums, and far fewer in markets, temple closes and government wards, plus a household of eight on each farmstead. Greens hold no one. Because it goes by the land rather than by counting houses, burgage plots and classic houses give the same town the same population, and moving buildings doesn't change it. Gnome towns are counted by their homes instead. Each gnome home holds 4 to 16 gnomes, 8 in a home of the usual size and more in a bigger one, so the average is 8, and the shops, stores and barns among them hold no one. Gnomes live one home to a large garden plot, so a gnome town has fewer than half the people of the same town built for people. As a guide, a hamlet has about 100 people, a small town about 1,000, a small city 2,000 to 3,000, a 40-ward metropolis around 16,000 and a 100-ward capital well over 100,000. A gnome capital of 100 wards holds 40,000 to 50,000 gnomes. Most medieval cities had under 20,000 people, so the biggest sizes are for fantasy capitals.
 
 A hamlet is a farm or two. Its one or two wards hold a few houses, with farmsteads, fields and orchards round them, and it is laid out on as much land as a small town so there is countryside to farm. Hamlets have no plaza, since it would take their only ward, and a hamlet's castle is more of a manor, with its gate opening onto the houses.
 
@@ -68,7 +69,7 @@ Changing any option rebuilds the same seed, so you can see what each one does to
 | Plaza | An open market square at the centre, from 3 wards up |
 | Temple | Temples, with the number beside it setting how many, from 1 to 10 |
 | Greens | Parks with trees round their edges |
-| Roads | Whether every gate has a road out of town, or only two |
+| Roads | How many roads lead out of town: one from every gate, or 1 to 10 |
 
 | Countryside | What it does |
 | --- | --- |
@@ -104,6 +105,7 @@ Castles, temples, markets and farms have no plot border in any style.
 
 ### Roads and streets
 
+- Roads sets how many roads lead out of town. All gates gives one from every gate, as the original does. A number from 1 to 10 keeps that many, spread as evenly round the town as the gates allow, and a town with too few gates gets more, each placed as far round the wall from the others as it can be. A town can only have as many gates as its wall has room for, since gates never stand side by side and none faces the sea, so a small or coastal town may get fewer roads than you ask for.
 - Each road carries on through its gate as the main street to the centre of town.
 - The other gaps between wards in town have streets, drawn as single lines. Streets stop at the edge of a road and never cross one.
 - A street runs just inside the city wall wherever there's room between the wall and the buildings, such as inside a bulge made by pushing the wall out.

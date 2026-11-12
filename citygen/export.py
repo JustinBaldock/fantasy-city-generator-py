@@ -12,7 +12,7 @@ from .plots import Plot
 from .streets import ways
 from .model import Model, size_name
 
-JSON_FORMAT_VERSION = 13
+JSON_FORMAT_VERSION = 14
 
 
 def _xy(polygon):
@@ -336,7 +336,16 @@ def city_from_dict(data):
             "This file was exported by an older version of the app, which "
             "didn't save the settings needed to open it again")
 
-    model = Model(**settings)
+    if data.get("version", 0) > JSON_FORMAT_VERSION:
+        raise ImportError_(
+            "This file was exported by a newer version of the app. Update "
+            "the app to open it")
+    try:
+        model = Model(**settings)
+    except TypeError as error:
+        raise ImportError_(
+            "This file has settings this version of the app doesn't know. "
+            "It may need a newer version") from error
     editor = CityEditor(model)
     built = set(model.built_corners)
     saved_walls = (data.get("wall"), data.get("castle_wall"))
@@ -377,6 +386,10 @@ def city_from_dict(data):
             _restore_building(polygon, landmark)
 
     again = city_to_dict(model)
+    # A file from an older version may not have every setting this one
+    # records, so only the settings it has are compared.
+    again["settings"] = {key: value for key, value in again["settings"].items()
+                         if key in settings}
     differences = [key for key in data
                    if key not in _DERIVED and again.get(key) != data[key]]
     return model, differences

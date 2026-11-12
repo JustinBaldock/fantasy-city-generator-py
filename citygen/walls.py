@@ -84,6 +84,49 @@ class CurtainWall:
             for gate in self.gates:
                 gate.set(shape.smooth_vertex(gate))
 
+    def add_gates(self, model, wanted, reserved):
+        """Add gates until there are as many as wanted, or no room is left.
+
+        This port's own, for a town asked for more roads than it has gates.
+        Each new gate goes where the original would allow one, as far round
+        the wall from the others as it can, so the roads spread out. It takes
+        no random numbers, so a town with gates enough is built as before.
+        """
+        shape = self.shape
+
+        def allowed(v):
+            if v in reserved or v in self.gates:
+                return False
+            if len(self.patches) > 1:
+                return sum(1 for p in self.patches if v in p.shape) > 1
+            return True
+
+        def near_a_gate(v):
+            return any(shape.next(g) is v or shape.prev(g) is v
+                       for g in self.gates)
+
+        def bearing(v):
+            return math.atan2(v.y, v.x)
+
+        def apart(v):
+            gaps = [abs(bearing(v) - bearing(g)) for g in self.gates]
+            return min((min(gap, 2 * math.pi - gap) for gap in gaps),
+                       default=math.pi)
+
+        while len(self.gates) < wanted:
+            entrances = [v for v in shape if allowed(v) and not near_a_gate(v)]
+            if not entrances:
+                break
+            gate = max_by(entrances, apart)
+            self.gates.append(gate)
+            if model.walls_needed:
+                outer_wards = [w for w in model.patch_by_vertex(gate)
+                               if w not in self.patches]
+                if len(outer_wards) == 1:
+                    self._split_outer_ward(model, gate, outer_wards[0],
+                                           reserved)
+                gate.set(shape.smooth_vertex(gate))
+
     def _split_outer_ward(self, model, gate, outer, reserved):
         if len(outer.shape) <= 3:
             return

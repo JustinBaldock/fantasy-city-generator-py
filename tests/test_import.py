@@ -190,3 +190,22 @@ def test_the_window_reports_a_file_it_cant_open(window, tmp_path):
     assert not window.open_json(str(path))
     assert window.shown and window.shown[0][0] == "warning"
     assert window.model.seed == seed
+
+
+def test_a_file_from_before_roads_could_be_counted_opens_the_same(window):
+    original = Model(9, 3, walls=False, hub=False, sea=90, coast=True)
+    data = through_file(original)
+    del data["settings"]["roads"]
+    model, differences = city_from_dict(data)
+    assert differences == [] and len(model.roads) == len(original.roads)
+
+
+def test_a_file_from_a_newer_version_is_refused():
+    data = through_file(Model(9, 3))
+    data["version"] += 1
+    with pytest.raises(ImportError_, match="newer"):
+        city_from_dict(data)
+    data = through_file(Model(9, 3))
+    data["settings"]["moons"] = 2
+    with pytest.raises(ImportError_):
+        city_from_dict(data)
