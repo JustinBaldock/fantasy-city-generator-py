@@ -1,6 +1,6 @@
 """Drawing the map's layers with Qt, for the screen and for PNG files."""
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -9,9 +9,16 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPolygonF,
 )
 
-from .layers import build_layers, map_extent, scale_bar, scale_label
+from .layers import (
+    build_layers,
+    compass_rose,
+    map_extent,
+    scale_bar,
+    scale_label,
+)
 
 # Qt fills many small paths far faster than one huge one, and a forest can
 # have thousands of trees, so its circles are grouped by square of map. Big
@@ -266,30 +273,78 @@ def paint_scale_bar(painter, palette, left, bottom, per_unit, most, size):
     painter.restore()
 
 
+def paint_compass(painter, palette, cx, cy, radius, bearing):
+    """A compass rose centred on a point, in pixels, with north bearing
+    degrees clockwise from straight up."""
+    shapes, letters = compass_rose(bearing)
+    dark = QColor(palette.dark)
+    painter.save()
+    backing = QColor(palette.paper)
+    backing.setAlpha(215)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(backing)
+    painter.drawEllipse(QPointF(cx, cy), radius * 1.62, radius * 1.62)
+    pen = QPen(dark, max(1.0, radius / 30))
+    pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+    painter.setPen(pen)
+    for points, shaded in shapes:
+        painter.setBrush(dark if shaded else QColor(palette.paper))
+        painter.drawPolygon(QPolygonF([QPointF(cx + x * radius, cy + y * radius)
+                                       for x, y in points]))
+    font = QFont(painter.font())
+    font.setPixelSize(max(6, round(radius * 0.36)))
+    for letter, x, y in letters:
+        font.setBold(letter == "N")
+        painter.setFont(font)
+        box = QRectF(cx + x * radius - radius, cy + y * radius - radius,
+                     radius * 2, radius * 2)
+        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, letter)
+    painter.restore()
+
+
+def compass_place(width, height, size):
+    """Where the compass goes, its centre and radius, in the top right
+    corner of a picture."""
+    radius = size
+    margin = radius * 1.75
+    return width - margin, margin, radius
+
+
 def save_layers_png(layers, extent, palette, path, pixels=3000,
-                    show_scale_bar=True):
+                    show_scale_bar=True, rotation=0, compass=None):
     """Any set of layers as a square PNG, showing extent map units round the
-    centre each way."""
+    centre each way.
+
+    rotation turns the map clockwise by that many degrees, and compass, if
+    given, is the bearing of north on the map, for a compass rose that
+    turns with it.
+    """
     image = QImage(pixels, pixels, QImage.Format.Format_RGB32)
     image.fill(QColor(palette.paper))
 
     painter = QPainter(image)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.translate(pixels / 2, pixels / 2)
+    painter.rotate(rotation)
     scale = pixels / (extent * 2)
     painter.scale(scale, scale)
     paint(painter, prepare_layers(layers))
+    painter.resetTransform()
     if show_scale_bar:
-        painter.resetTransform()
         margin = pixels * 0.03
         paint_scale_bar(painter, palette, margin, pixels - margin, scale,
                         pixels * 0.2, pixels * 0.018)
+    if compass is not None:
+        cx, cy, radius = compass_place(pixels, pixels, pixels * 0.035)
+        paint_compass(painter, palette, cx, cy, radius, compass + rotation)
     painter.end()
 
     if not image.save(str(path), "PNG"):
         raise OSError(f"Couldn't save {path}")
 
 
-def save_png(model, palette, path, pixels=3000, show_scale_bar=True):
+def save_png(model, palette, path, pixels=3000, show_scale_bar=True,
+             rotation=0, compass=None):
     save_layers_png(build_layers(model, palette, grouped=True),
-                    map_extent(model), palette, path, pixels, show_scale_bar)
+                    map_extent(model), palette, path, pixels, show_scale_bar,
+                    rotation, compass)

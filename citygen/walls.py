@@ -8,6 +8,13 @@ from .patch import Patch, find_circumference
 from .water import RIVER_WIDTH
 
 
+def _ways_out(model, v, wall):
+    """Whether a street line leads straight out of a wall at a corner,
+    which it does where two or more patches outside meet there."""
+    return sum(1 for patch in model.patch_by_vertex(v)
+               if patch not in wall.patches) >= 2
+
+
 class CurtainWall:
 
     def __init__(self, real, model, patches, reserved):
@@ -21,7 +28,8 @@ class CurtainWall:
             self.shape = patches[0].shape
         else:
             self.shape = find_circumference(patches)
-            if real:
+            # A planned town's walls keep its straight lines and circles.
+            if real and model.layout == "organic":
                 smooth_factor = min(1, 40 / len(patches))
                 self.shape.set(Polygon(
                     v if v in reserved
@@ -46,6 +54,12 @@ class CurtainWall:
             ]
         else:
             entrances = [v for v in shape if v not in reserved]
+
+        if model.layout != "organic":
+            # A planned town's roads leave along its street lines, which
+            # need a gate where more than one ward outside meets the wall.
+            straight = [v for v in entrances if _ways_out(model, v, self)]
+            entrances = straight or entrances
 
         if not entrances:
             raise GenerationError("Bad walled area shape")
@@ -80,7 +94,7 @@ class CurtainWall:
             if len(entrances) < 3:
                 break
 
-        if real:
+        if real and model.layout == "organic":
             for gate in self.gates:
                 gate.set(shape.smooth_vertex(gate))
 
@@ -96,6 +110,8 @@ class CurtainWall:
 
         def allowed(v):
             if v in reserved or v in self.gates:
+                return False
+            if model.layout != "organic" and not _ways_out(model, v, self):
                 return False
             if len(self.patches) > 1:
                 return sum(1 for p in self.patches if v in p.shape) > 1
@@ -125,7 +141,8 @@ class CurtainWall:
                 if len(outer_wards) == 1:
                     self._split_outer_ward(model, gate, outer_wards[0],
                                            reserved)
-                gate.set(shape.smooth_vertex(gate))
+                if model.layout == "organic":
+                    gate.set(shape.smooth_vertex(gate))
 
     def _split_outer_ward(self, model, gate, outer, reserved):
         if len(outer.shape) <= 3:

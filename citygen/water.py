@@ -21,7 +21,7 @@ from .geometry import (
     min_by,
 )
 from .patch import Patch
-from .topology import Node, find_path
+from .topology import Node, find_path, shortest_path
 
 RIVER_WIDTH = 6.0
 BANK = 0.8
@@ -226,7 +226,19 @@ def build_river(model):
 
     if model.shore:
         # Let the river reach the shore at one chosen spot.
-        end = _nearest(model.shore[1:-1], waypoint)
+        landings = model.shore[1:-1]
+        if model.layout != "organic":
+            # On a ring, most points only join their neighbours round it, so
+            # the river must land where a way leads inland.
+            inland = set()
+            for patch in model.patches:
+                for a, b in patch.shape.edges():
+                    if b in nodes:
+                        inland.add(a)
+                    if a in nodes:
+                        inland.add(b)
+            landings = [p for p in landings if p in inland] or landings
+        end = _nearest(landings, waypoint)
         nodes[end] = Node()
         for patch in model.patches:
             for a, b in patch.shape.edges():
@@ -241,11 +253,12 @@ def build_river(model):
 
     points_of = {node: point for point, node in nodes.items()}
 
-    first_leg = find_path(nodes[source], nodes[waypoint])
+    search = find_path if model.layout == "organic" else shortest_path
+    first_leg = search(nodes[source], nodes[waypoint])
     if first_leg is None:
         raise GenerationError("The river can't reach the city")
     used = set(first_leg) - {nodes[waypoint]}
-    second_leg = find_path(nodes[waypoint], nodes[end], used)
+    second_leg = search(nodes[waypoint], nodes[end], used)
     if second_leg is None:
         raise GenerationError("The river can't leave the city")
 

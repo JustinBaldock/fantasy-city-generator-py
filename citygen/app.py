@@ -1,5 +1,6 @@
 """The desktop app."""
 
+import math
 import random
 import sys
 
@@ -80,6 +81,10 @@ EDGE_PIXELS = 4  # How close to grab a stretch of wall and add a corner.
 # side, so small pans and hovering don't draw the whole map again.
 CACHE_MARGIN = 0.25
 
+MAP_TURN = 90  # Degrees the map turns for each press of a button.
+COMPASS_TURN = 15  # Degrees north turns for each press of a button.
+COMPASS_PIXELS = 34  # The compass's radius on screen.
+
 MIN_ZOOM = 0.3
 MAX_ZOOM = 40.0
 
@@ -120,6 +125,9 @@ class MapView(QWidget):
         self._kept_layers = {}
         self._changed = None
         self.show_scale_bar = True
+        self.show_compass = True
+        self.rotation = 0  # How far the map is turned clockwise, in degrees.
+        self.north = 0  # Where north is on the map, clockwise from up.
         self._cache = None
         self._cache_key = None
         self._cache_pan = QPointF(0, 0)
@@ -175,8 +183,17 @@ class MapView(QWidget):
         transform = QTransform()
         transform.translate(self.width() / 2 + self.pan.x(),
                             self.height() / 2 + self.pan.y())
+        transform.rotate(self.rotation)
         transform.scale(scale, scale)
         return transform
+
+    def set_turns(self, rotation, north):
+        """Turn the map on screen, clockwise in degrees, and set where north
+        is on the map, clockwise from up the map."""
+        self.rotation = rotation % 360
+        self.north = north % 360
+        self._cache = None
+        self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -197,6 +214,11 @@ class MapView(QWidget):
         if self.show_scale_bar:
             qt_render.paint_scale_bar(painter, colours, 16, self.height() - 14,
                                       self._scale(), 160, 12)
+        if self.show_compass:
+            cx, cy, radius = qt_render.compass_place(
+                self.width(), self.height(), COMPASS_PIXELS)
+            qt_render.paint_compass(painter, colours, cx, cy, radius,
+                                    self.north + self.rotation)
         if self.hover_text:
             self._paint_label(painter, colours)
 
@@ -328,7 +350,7 @@ class MapView(QWidget):
 
     def _scale(self):
         """Pixels for each unit of map."""
-        return self._transform().m11()
+        return math.hypot(self._transform().m11(), self._transform().m12())
 
     def _wall_handle_at(self, spot):
         """A wall corner, or else a stretch of wall, under the pointer."""
@@ -526,6 +548,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         self._build_menu()
+        self._show_north()
 
         for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             QShortcut(QKeySequence(key), self, self._return_pressed)
@@ -688,6 +711,15 @@ class MainWindow(QMainWindow):
             "How many roads lead out of town: one from every gate, or a "
             "number, spread round the town. A town with too few gates for "
             "them gets more gates")
+        self.layout_box = QComboBox()
+        self.layout_box.addItem("Organic", "organic")
+        self.layout_box.addItem("Grid", "grid")
+        self.layout_box.addItem("Circular", "radial")
+        self.layout_box.setToolTip(
+            "Organic streets wind as an old town's do. A grid town has "
+            "straight streets in blocks, with avenues crossing at the centre. "
+            "A circular town has a round hub, ring roads round it and spokes "
+            "running out from it.")
         self.homes_box = QComboBox()
         self.homes_box.addItem("Burgage plots", "burgage")
         self.homes_box.addItem("Gnome", "gnome")
@@ -698,7 +730,8 @@ class MainWindow(QMainWindow):
             "sides, among rectangular shops, stores and barns. Classic "
             "houses fill their plots, as on the original generator.")
         # Label, control, and which box it goes in.
-        features = (("Homes", self.homes_box, city_layout),
+        features = (("Layout", self.layout_box, city_layout),
+                    ("Homes", self.homes_box, city_layout),
                     ("Walls", self.walls_box, city_layout),
                     ("Castle", self.citadel_box, city_layout),
                     ("Plaza", self.plaza_box, city_layout),
@@ -761,6 +794,33 @@ class MainWindow(QMainWindow):
         QVBoxLayout(style_box).addWidget(self.palette_box)
         layout.addWidget(style_box)
 
+        turn_box = QGroupBox("Orientation")
+        turn_form = _form(turn_box)
+        for label, step, change, tips in (
+                ("Map", MAP_TURN, self.turn_map,
+                 ("Turn the map a quarter turn anticlockwise (Ctrl+[)",
+                  "Turn the map a quarter turn clockwise (Ctrl+])")),
+                ("Compass", COMPASS_TURN, self.turn_compass,
+                 ("Turn north anticlockwise on the map",
+                  "Turn north clockwise on the map"))):
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            for text, sign, tip in (("\u21ba Left", -1, tips[0]),
+                                    ("Right \u21bb", 1, tips[1])):
+                button = QPushButton(text)
+                button.setToolTip(tip)
+                button.clicked.connect(
+                    lambda checked=False, c=change, a=sign * step: c(a))
+                row_layout.addWidget(button)
+            turn_form.addRow(label, row)
+        self.north_label = QLabel()
+        self.north_label.setToolTip(
+            "Where north points on the map, clockwise from the top of the "
+            "map as first drawn")
+        turn_form.addRow("North", self.north_label)
+        layout.addWidget(turn_box)
+
         layout.addStretch(1)
         return panel
 
@@ -799,9 +859,64 @@ class MainWindow(QMainWindow):
             "Show a scale bar on the map and in exports")
         self.scale_bar_action.toggled.connect(self._scale_bar_toggled)
         view_menu.addAction(self.scale_bar_action)
+        self.compass_action = QAction("Compass", self)
+        self.compass_action.setCheckable(True)
+        self.compass_action.setChecked(True)
+        self.compass_action.setToolTip(
+            "Show a compass on the map and in exports")
+        self.compass_action.toggled.connect(self._compass_toggled)
+        view_menu.addAction(self.compass_action)
+        view_menu.addSeparator()
+        for text, shortcut, handler in (
+                ("Turn map left", "Ctrl+[", lambda: self.turn_map(-MAP_TURN)),
+                ("Turn map right", "Ctrl+]", lambda: self.turn_map(MAP_TURN)),
+                ("Turn compass left", None,
+                 lambda: self.turn_compass(-COMPASS_TURN)),
+                ("Turn compass right", None,
+                 lambda: self.turn_compass(COMPASS_TURN))):
+            action = QAction(text, self)
+            if shortcut:
+                action.setShortcut(QKeySequence(shortcut))
+            action.triggered.connect(handler)
+            view_menu.addAction(action)
 
     def palette(self):
         return PALETTES[self.palette_box.currentText()]
+
+    def turn_map(self, degrees):
+        """Turn the map on screen, and in exports, by a number of degrees
+        clockwise. The compass turns with it."""
+        self.view.set_turns(self.view.rotation + degrees, self.view.north)
+        self._show_north()
+
+    def turn_compass(self, degrees):
+        """Turn north on the map by a number of degrees clockwise."""
+        self.view.set_turns(self.view.rotation, self.view.north + degrees)
+        self._show_north()
+
+    def _show_north(self):
+        north = self.view.north
+        self.north_label.setText(
+            "Up the map" if north == 0 else
+            f"{north}\N{DEGREE SIGN} clockwise from up the map")
+
+    def view_settings(self):
+        """How the map is shown, as saved with it."""
+        return {"rotation": self.view.rotation, "north": self.view.north,
+                "compass": self.view.show_compass,
+                "scale_bar": self.view.show_scale_bar}
+
+    def _apply_view(self, view):
+        if not view:
+            return
+        self.view.set_turns(view.get("rotation", 0), view.get("north", 0))
+        self.compass_action.setChecked(bool(view.get("compass", True)))
+        self.scale_bar_action.setChecked(bool(view.get("scale_bar", True)))
+        self._show_north()
+
+    def _compass_toggled(self, on):
+        self.view.show_compass = on
+        self.view.update()
 
     def _scale_bar_toggled(self, on):
         self.view.show_scale_bar = on
@@ -891,6 +1006,7 @@ class MainWindow(QMainWindow):
                 temples=self.temple_count_box.currentData(),
                 field_ratio=self.field_ratio_box.currentData(),
                 home_style=self.homes_box.currentData(),
+                layout=self.layout_box.currentData(),
             )
         except GenerationError as error:
             QMessageBox.warning(self, APP_NAME, str(error))
@@ -929,6 +1045,7 @@ class MainWindow(QMainWindow):
             "river": self.river_box, "fields": self.fields_box,
             "forests": self.forests_box, "orchards": self.orchards_box,
             "roads": self.roads_box, "home_style": self.homes_box,
+            "layout": self.layout_box,
             "orchard_ratio": self.orchard_ratio_box,
             "temples": self.temple_count_box,
             "field_ratio": self.field_ratio_box,
@@ -985,6 +1102,7 @@ class MainWindow(QMainWindow):
 
         self._show_settings(model.settings)
         self._show(model)
+        self._apply_view(getattr(model, "view_settings", None))
         self.statusBar().showMessage(f"Opened {path}", 5000)
         if notes:
             QMessageBox.information(self, APP_NAME, "\n\n".join(notes))
@@ -1065,6 +1183,9 @@ class MainWindow(QMainWindow):
         else:
             self._report_saved(path)
 
+    def _export_compass(self):
+        return self.view.north if self.view.show_compass else None
+
     def export_png(self):
         pixels, accepted = QInputDialog.getInt(
             self, "Export PNG", "Width and height in pixels", 3000, 500, 16000,
@@ -1075,18 +1196,21 @@ class MainWindow(QMainWindow):
         if path:
             self._save(path, lambda: qt_render.save_png(
                 self.model, self.palette(), path, pixels,
-                self.view.show_scale_bar))
+                self.view.show_scale_bar, self.view.rotation,
+                self._export_compass()))
 
     def export_svg(self):
         path = self._ask_path("Export SVG", "svg", "SVG image")
         if path:
             self._save(path, lambda: export.save_svg(
-                self.model, self.palette(), path, self.view.show_scale_bar))
+                self.model, self.palette(), path, self.view.show_scale_bar,
+                self.view.rotation, self._export_compass()))
 
     def export_json(self):
         path = self._ask_path("Export JSON", "json", "City data")
         if path:
-            self._save(path, lambda: export.save_json(self.model, path))
+            self._save(path, lambda: export.save_json(
+                self.model, path, self.view_settings()))
 
 
 def main():

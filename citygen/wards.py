@@ -250,6 +250,10 @@ class Ward:
         self.geometry = kept
 
 
+# How much of its usual irregularity a ward keeps in a grid town.
+GRID_CHAOS = 0.25
+
+
 class CommonWard(Ward):
 
     def __init__(self, model, patch, min_sq, grid_chaos, size_chaos,
@@ -262,8 +266,12 @@ class CommonWard(Ward):
 
     def create_geometry(self):
         block = self.get_city_block()
+        chaos = self.grid_chaos
+        if self.model.layout == "grid":
+            # A planned grid town divides its blocks squarely.
+            chaos *= GRID_CHAOS
         self.geometry = create_alleys(
-            block, self.min_sq + self.plot_bonus, self.grid_chaos,
+            block, self.min_sq + self.plot_bonus, chaos,
             self.size_chaos, self.empty_prob)
         if not self.model.is_enclosed(self.patch):
             self.filter_outskirts()

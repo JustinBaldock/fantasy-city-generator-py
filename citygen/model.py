@@ -20,6 +20,8 @@ from .geometry import (
     max_by,
     min_by,
 )
+from . import layouts
+from .layouts import LAYOUTS
 from .patch import Patch
 from .topology import Topology
 from .voronoi import Voronoi
@@ -54,6 +56,8 @@ DEFAULT_SIZE = 15
 MAX_SEED = 2147483646
 MAX_ATTEMPTS = 500
 MAX_ROADS = 10
+# A circle of points with fewer than this isn't one of a circular town's rings.
+SPOKES_AT_LEAST = 8
 HOME_STYLES = ("burgage", "gnome", "classic")
 # Parts of wheat field to each part of orchard, where there are both.
 ORCHARD_RATIOS = (10, 8, 4)
@@ -141,7 +145,8 @@ class Model:
                  hub=True, sea=None, fields=None, forests=None,
                  home_style="burgage", orchards=None,
                  orchard_ratio=DEFAULT_ORCHARD_RATIO, temples=1,
-                 field_ratio=DEFAULT_FIELD_RATIO, roads=None):
+                 field_ratio=DEFAULT_FIELD_RATIO, roads=None,
+                 layout="organic"):
         if home_style not in HOME_STYLES:
             raise ValueError(f"Unknown home style {home_style!r}")
         if seed > 0:
@@ -158,7 +163,7 @@ class Model:
             temple=temple, greens=greens, coast=coast, river=river, hub=hub,
             sea=sea, fields=fields, forests=forests, home_style=home_style,
             orchards=orchards, orchard_ratio=orchard_ratio, temples=temples,
-            field_ratio=field_ratio, roads=roads)
+            field_ratio=field_ratio, roads=roads, layout=layout)
         self.temple_option = temple
         self.greens_option = greens
         if roads is not None and not 1 <= roads <= MAX_ROADS:
@@ -171,6 +176,9 @@ class Model:
             roads = 2
         self.roads_wanted = roads
         self.home_style = home_style
+        if layout not in LAYOUTS:
+            raise ValueError(f"Unknown layout {layout!r}")
+        self.layout = layout
 
         self.features = random.Random(seed)
         coast_roll = self.features.random() < COAST_CHANCE
@@ -255,6 +263,16 @@ class Model:
         self._build_geometry()
 
     def _build_patches(self):
+        if self.layout != "organic":
+            # Straight streets or rings: made directly, with no Voronoi
+            # diagram to smooth out.
+            count = max(self.size, SMALL_TOWN) * 8
+            shapes = (layouts.grid(count) if self.layout == "grid"
+                      else layouts.radial(count))
+            self.patches = [Patch(shape) for shape in shapes]
+            self._take_the_town()
+            return
+
         start_angle = rng.random() * 2 * math.pi
         points = []
         for i in range(max(self.size, SMALL_TOWN) * 8):
@@ -270,6 +288,10 @@ class Model:
 
         voronoi.points.sort(key=lambda p: p.length)
         self.patches = [Patch.from_region(r) for r in voronoi.partitioning()]
+        self._take_the_town()
+
+    def _take_the_town(self):
+        """Mark the town's wards, the patches nearest the centre."""
         self.inner = []
 
         if self.coast_needed:
@@ -304,7 +326,13 @@ class Model:
             castle.within_city = True
 
     def _optimize_junctions(self):
-        """Merge vertices that sit very close together."""
+        """Merge vertices that sit very close together.
+
+        Only a Voronoi diagram leaves them. The grid and circular plans have
+        none, and merging would bend their straight lines.
+        """
+        if self.layout != "organic":
+            return
         to_optimize = list(self.inner)
         if self.citadel is not None:
             to_optimize.append(self.citadel)
@@ -401,7 +429,12 @@ class Model:
             else:
                 end = self.center
 
-            street = self.topology.build_path(gate, end, self.topology.outer)
+            street = self._path(gate, end, self.topology.outer)
+            if street is None and self.layout != "organic" and len(
+                    self.inner) == 1:
+                # A planned town of one ward has no streets inside it, just
+                # the way in at its gate.
+                street = [gate]
             if street is None:
                 raise GenerationError("Unable to build a street")
             self.streets.append(Polygon(street))
@@ -416,22 +449,130 @@ class Model:
                         nearest = d
                         start = p
 
-                road = self.topology.build_path(
-                    start, gate, self.topology.inner)
+                road = self._path(start, gate, self.topology.inner)
                 if road is not None:
                     self.roads.append(Polygon(road))
 
         if self.roads_wanted is not None:
             self._keep_roads(self.roads_wanted)
 
+        if self.layout != "organic":
+            self.streets += self._planned_streets()
+
         self._tidy_up_roads()
 
+        if self.layout != "organic":
+            # Planned streets keep their straight lines and true circles.
+            return
         fixed = self.water_points
         for artery in self.arteries:
             smoothed = artery.smooth_vertex_eq(3)
             for i in range(1, len(artery) - 1):
                 if artery[i] not in fixed:
                     artery[i].set(smoothed[i])
+
+    def _path(self, start, goal, exclude):
+        """A street or road between two points, along the patches' edges.
+
+        The original's search, for the organic plan. A planned town's streets
+        are the shortest way with the fewest turns instead, so they run
+        straight along its grid lines, rings and spokes.
+        """
+        if self.layout == "organic":
+            return self.topology.build_path(start, goal, exclude)
+        return self.topology.straight_path(start, goal, exclude)
+
+    def _planned_streets(self):
+        """The main streets a planned town has besides those from its gates:
+        the grid's avenues through the centre, or the circle's rings and
+        spokes.
+
+        Each runs only along edges between two of the town's wards, so it
+        stops short of the walls, the river and open country.
+        """
+        inner = set()
+        for patch in self.inner:
+            for a, b in patch.shape.edges():
+                inner.add((id(a), id(b)))
+
+        def between_wards(a, b):
+            return ((id(a), id(b)) in inner and (id(b), id(a)) in inner
+                    and (a, b) not in self.river_edges)
+
+        lines = []
+        if self.layout == "grid":
+            centre = self.center
+            points = {v for patch in self.inner for v in patch.shape}
+            for along in ("x", "y"):
+                across = "y" if along == "x" else "x"
+                level = getattr(centre, across)
+                line = sorted((v for v in points
+                               if abs(getattr(v, across) - level) < 1e-9),
+                              key=lambda v: getattr(v, along))
+                lines.append((line, False))
+        else:
+            for ring in self._rings():
+                lines.append((ring, True))
+            lines += [(spoke, False) for spoke in self._spokes()]
+
+        found = []
+        for line, closed in lines:
+            pairs = list(zip(line, line[1:]))
+            if closed and len(line) > 2:
+                pairs.append((line[-1], line[0]))
+                inside = [between_wards(a, b) for a, b in pairs]
+                if all(inside):
+                    found.append(line + [line[0]])
+                    continue
+                # Start where the ring leaves the town, so no run is split.
+                first = inside.index(False)
+                pairs = pairs[first:] + pairs[:first]
+            run = []
+            for a, b in pairs:
+                if between_wards(a, b):
+                    if not run:
+                        run = [a]
+                    run.append(b)
+                elif run:
+                    found.append(run)
+                    run = []
+            if run:
+                found.append(run)
+        return [Polygon(run) for run in found if len(run) >= 2]
+
+    def _rings(self):
+        """The points round each ring of a circular town, in order."""
+        by_radius = {}
+        for patch in self.patches:
+            for v in patch.shape:
+                by_radius.setdefault(round(v.length, 6), {})[id(v)] = v
+        rings = []
+        for radius, points in sorted(by_radius.items()):
+            if radius > 0 and len(points) >= SPOKES_AT_LEAST:
+                rings.append(sorted(points.values(),
+                                    key=lambda v: math.atan2(v.y, v.x)))
+        return rings
+
+    def _spokes(self):
+        """The points out along each of the hub's spokes, in order."""
+        rings = self._rings()
+        if not rings:
+            return []
+        first = rings[0]
+        step = max(1, len(first) // layouts.SPOKES)
+        spokes = []
+        for start in first[::step]:
+            bearing = math.atan2(start.y, start.x)
+            line = [start]
+            for ring in rings[1:]:
+                nearest = min(ring, key=lambda v: abs(math.remainder(
+                    math.atan2(v.y, v.x) - bearing, 2 * math.pi)))
+                if abs(math.remainder(math.atan2(nearest.y, nearest.x)
+                                      - bearing, 2 * math.pi)) > 1e-6:
+                    break
+                line.append(nearest)
+            spokes.append(line)
+        return spokes
 
     def _keep_roads(self, wanted):
         """Keep one road at random, then each time the road leaving furthest

@@ -34,7 +34,7 @@ The same folder has a second app for single remote places, the [Fantasy Location
 
 ## Making a map
 
-The controls are down the right of the window, in boxes for the map, the town, the countryside and the style, with the editing and export buttons kept in view below them. Drag the edge between the map and the controls to make the controls wider. If the window is too short for them all, the controls scroll.
+The controls are down the right of the window, in boxes for the map, the town, the countryside, the style and the orientation, with the editing and export buttons kept in view below them. Drag the edge between the map and the controls to make the controls wider. If the window is too short for them all, the controls scroll.
 
 ### Map size and seed
 
@@ -63,6 +63,7 @@ Changing any option rebuilds the same seed, so you can see what each one does to
 
 | Town | What it does |
 | --- | --- |
+| Layout | Organic winding streets, a grid of straight streets, or a circular town of rings and spokes |
 | Homes | Burgage plots, gnome homes or classic houses |
 | Walls | A city wall with towers and gates |
 | Castle | A walled castle, joined to the city wall when there is one |
@@ -88,6 +89,8 @@ The number and ratios beside Temple, Wheat fields and Orchards are greyed out wh
 - Hover over a ward to see what kind it is.
 - Style changes the colours without changing the map.
 - A scale bar sits in the bottom left corner. View > Scale bar turns it off, on the map and in exports.
+- A compass sits in the top right corner. View > Compass turns it off, on the map and in exports.
+- The Orientation box turns the map and the compass. The Map buttons turn the whole map a quarter turn left or right (Ctrl+[ and Ctrl+] do the same), to change which way up it is. The Compass buttons turn north round the map 15 degrees at a time, and North says where it points. The compass is part of the map, so it turns with the map. Turning changes only how the map is shown, not the town, and Sea to still gives the coast's bearing from the top of the map as first drawn.
 
 ## What's on the map
 
@@ -102,6 +105,16 @@ Every house stands on its own plot of land, drawn as a property with a border ro
 **Classic houses** fill their plots edge to edge, with no gardens or borders, as on the original generator. A classic map is the same as this port gave before plots were added.
 
 Castles, temples, markets and farms have no plot border in any style.
+
+### Layouts
+
+Layout sets the town's plan. The same seed gives a different town in each.
+
+- **Organic** is the original's plan, laid out on a Voronoi diagram, with streets that wind and wards of every shape.
+- **Grid** is a planned town of blocks. Its streets run straight, east to west and north to south, with blocks of slightly different sizes, and two avenues cross at the centre, where a plaza takes the middle block when there is one. The buildings in each block are set out squarely, and the walls step round the blocks, with gates only where a street leads straight out. A river bends the blocks along its banks.
+- **Circular** has a round hub at its centre, often its plaza, with ring roads round it and spokes running out from it. The spokes double as the rings grow, so the outer wards are no wider than the inner ones. The town takes the wards nearest the hub, so its edge is rough, and its walls follow the rings and step in along the spokes.
+
+Everything else works the same in all three: walls, castles, temples, water, farmland, homes and editing.
 
 ### Roads and streets
 
@@ -167,9 +180,9 @@ Undo move, or `Cmd`+`Z`, takes back one change at a time, including any walls a 
 
 The File menu exports the map three ways.
 
-- **PNG** at any size from 500 to 16,000 pixels square, with the scale bar unless it's turned off.
-- **SVG** with each kind of feature in its own named group, ready to edit in a vector program, and the scale bar unless it's turned off.
-- **JSON** with the wards, buildings, plots, walls, gates, towers, streets, roads, fields, orchards and trees as coordinates, including the roads and streets as drawn. It also records the settings the map was made with and the version of the app that made it. This is this app's own format, not the JSON format of Watabou's site.
+- **PNG** at any size from 500 to 16,000 pixels square, turned as the window shows it, with the scale bar and compass unless they're turned off.
+- **SVG** with each kind of feature in its own named group, ready to edit in a vector program, turned as the window shows it, with the scale bar and compass unless they're turned off.
+- **JSON** with the wards, buildings, plots, walls, gates, towers, streets, roads, fields, orchards and trees as coordinates, including the roads and streets as drawn. It also records the settings the map was made with, how the window shows it (its turn, north and whether the compass and scale bar show), and the version of the app that made it. Opening the file puts the view back too. This is this app's own format, not the JSON format of Watabou's site.
 
 Import JSON, or `Cmd`+`O`, opens a JSON export again so you can carry on editing it. The app makes the town again from its saved settings, puts back every building you moved, every wall corner you moved or added and every tower you added or took off, and sets the controls to match.
 
@@ -179,7 +192,7 @@ A JSON file records which version of the app made it, and the version shows in t
 
 This port is based on the source code Watabou published, which stopped being updated years ago. The website has moved on since then.
 
-Coasts, rivers, bridges, piers, farm fields, orchards, forests, rounded greens and their trees, temple landmarks and counts, plots, burgage plots, gnome homes, drawn streets, the Roads option, curved road drawing and the scale bar aren't in the published source. They are this project's own work, modelled on what the website's maps show where the site has them, and no code was taken from the website. They won't match it exactly.
+Coasts, rivers, bridges, piers, farm fields, orchards, forests, rounded greens and their trees, temple landmarks and counts, plots, burgage plots, gnome homes, drawn streets, the Roads option, the grid and circular layouts, curved road drawing, turning the map, the compass and the scale bar aren't in the published source. They are this project's own work, modelled on what the website's maps show where the site has them, and no code was taken from the website. They won't match it exactly.
 
 Editing buildings and walls, hamlets and villages of fewer than 6 wards, and all the options, are also additions in this port. The published source chose its features only from the seed, and could only show the map on screen.
 
@@ -244,6 +257,7 @@ Save keeps the location in a JSON file, every piece exactly where you left it, a
 | `citygen/plots.py` | Plots with a building on each, burgage plots, garden trees and the trees round greens |
 | `citygen/gnomes.py` | Gnome homes, and the rectangles and barns among them |
 | `citygen/countryside.py` | Wheat fields, orchards and forests |
+| `citygen/layouts.py` | The grid and circular town plans |
 | `citygen/model.py` | Building a whole city |
 | `citygen/population.py` | The estimated population |
 | `citygen/streets.py` | The roads and streets as drawn, bent round moved buildings and joined to bridges |
@@ -267,6 +281,7 @@ Save keeps the location in a JSON file, every piece exactly where you left it, a
 - The features added in this port draw their own random numbers, seeded from the map's seed, rather than taking from the original's sequence. Turning one on or off leaves the rest of the map alone, and Classic homes still give the original's layout.
 - Roads and streets are worked out from the buildings each time the map is drawn, so they follow every edit and undo without being saved anywhere.
 - Importing makes a town again from its settings and then moves its walls, roads and buildings to match the file, rather than rebuilding it from the coordinates alone. This keeps the town fully editable. `citygen/__init__.py` holds the app's version, which goes in every export. Bump it when a change could make the same settings give a different town.
+- The grid and circular plans make the patches the rest of the generator builds on, in place of the Voronoi diagram, with neighbouring patches sharing their corners as the diagram's do. They skip the steps that tidy a Voronoi diagram, such as smoothing the walls and main streets, which would bend their straight lines and circles, and their streets and rivers take the shortest way with the fewest sharp turns. Organic towns are built exactly as before.
 - The location generator reuses the city's drawing, export, countryside and gnome home code rather than copying it. A location is a flat list of pieces. Each keeps its shape in its own frame, so moving or turning one never changes its shape, and furrows, orchard rows and wood trees are worked out from each piece when it's drawn.
 - The window keeps the drawn map with a spare edge round it, so hovering and small pans don't redraw it, and big layers are drawn in small tiles, which Qt fills much faster. What the wards draw is grouped ward by ward, in the window and in PNGs alike.
 - Dragging stays quick in big towns because little is worked out again. The editor only changes a building by placing it or sliding it, and each time it counts an edit on the building's ward, so drawing works out again only the wards whose count has changed, and the roads and streets reuse the outlines of the rest. Within a changed ward only the buildings that have moved are worked out again, a way is bent again only when it or a building near it has changed, and the street inside the wall checks each point against only the stretches of wall level with it. Each group of shapes keeps its Qt path until it changes, and while dragging the window repaints only the part of the map that changed. A test checks a drag drawn this way against a full redraw. No building shares a point with a ward, wall or road, since editing moves those corners in place without counting an edit, and a test checks that too.

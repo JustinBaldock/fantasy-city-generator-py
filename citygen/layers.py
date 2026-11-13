@@ -41,6 +41,11 @@ FURROW_WIDTH = 0.14
 STREET_LINE = 0.3
 LINE_ROUNDING = 2
 
+# The compass rose, as shares of its radius.
+COMPASS_MINOR = 0.55  # How far the half-way points reach.
+COMPASS_WAIST = 0.17  # How wide each point is at the middle.
+COMPASS_LETTERS = 1.32  # Where the letters sit.
+
 _BUILDING_WARDS = (
     Market, CraftsmenWard, MerchantWard, GateWard, Slum, AdministrationWard,
     MilitaryWard, PatriciateWard, Farm,
@@ -362,3 +367,36 @@ def scale_label(metres):
     if metres >= 1000:
         return f"{metres / 1000:g} km"
     return f"{metres:g} m"
+
+
+def compass_rose(bearing):
+    """A compass rose of radius 1 round the origin, with north bearing
+    degrees clockwise from straight up, as the screen and exports draw it.
+
+    Returns its shapes, as (points, dark) with dark for the shaded half of
+    each point, and its letters, as (letter, x, y) for the middle of each.
+    Down the screen is +y.
+    """
+    def towards(degrees, reach):
+        angle = math.radians(degrees)
+        return (math.sin(angle) * reach, -math.cos(angle) * reach)
+
+    shapes = []
+    # The half-way points first, so the main ones lie over them.
+    for k in range(4):
+        middle = bearing + 45 + 90 * k
+        tip = towards(middle, COMPASS_MINOR)
+        shapes.append(([(0.0, 0.0), tip, towards(middle + 90, COMPASS_WAIST)],
+                       False))
+        shapes.append(([(0.0, 0.0), tip, towards(middle - 90, COMPASS_WAIST)],
+                       True))
+    for k in range(4):
+        middle = bearing + 90 * k
+        tip = towards(middle, 1.0)
+        shapes.append(([(0.0, 0.0), tip, towards(middle + 45, COMPASS_WAIST)],
+                       True))
+        shapes.append(([(0.0, 0.0), tip, towards(middle - 45, COMPASS_WAIST)],
+                       False))
+    letters = [(letter, *towards(bearing + 90 * k, COMPASS_LETTERS))
+               for k, letter in enumerate("NESW")]
+    return shapes, letters

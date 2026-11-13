@@ -7,12 +7,18 @@ from xml.sax.saxutils import escape
 from . import __version__
 from .geometry import Point
 
-from .layers import build_layers, map_extent, scale_bar, scale_label
+from .layers import (
+    build_layers,
+    compass_rose,
+    map_extent,
+    scale_bar,
+    scale_label,
+)
 from .plots import Plot
 from .streets import ways
 from .model import Model, size_name
 
-JSON_FORMAT_VERSION = 14
+JSON_FORMAT_VERSION = 15
 
 
 def _xy(polygon):
@@ -34,7 +40,7 @@ def _building(polygon):
     return polygon.house if isinstance(polygon, Plot) else polygon
 
 
-def city_to_dict(model):
+def city_to_dict(model, view=None):
     """The city as plain data. This is this app's own format.
 
     plots lines up with buildings, giving the border of each building's plot,
@@ -63,7 +69,7 @@ def city_to_dict(model):
             "landmarks": [_xy(b) for b in patch.ward.landmarks],
         })
 
-    return {
+    found = {
         "format": "fantasy-city-generator",
         "version": JSON_FORMAT_VERSION,
         # The version of the app that made it.
@@ -78,6 +84,7 @@ def city_to_dict(model):
         "center": [round(model.center.x, 3), round(model.center.y, 3)],
         "has_plaza": model.plaza is not None,
         "home_style": model.home_style,
+        "layout": model.layout,
         "sea_bearing": round(model.sea_bearing, 1) if model.shore else None,
         "shore": _xy(model.shore),
         "river": _xy(model.river),
@@ -103,11 +110,17 @@ def city_to_dict(model):
         "roads": [_xy(road) for road in model.roads],
         "wards": wards,
     }
+    if view is not None:
+        found["view"] = dict(view)
+    return found
 
 
-def save_json(model, path):
+def save_json(model, path, view=None):
+    """Save the city, and view, how the window shows it, if given: a dict
+    with the map's rotation in degrees, the bearing of north on the map, and
+    whether the compass and scale bar show."""
     with open(path, "w", encoding="utf-8") as file:
-        json.dump(city_to_dict(model), file, indent=1)
+        json.dump(city_to_dict(model, view), file, indent=1)
         file.write("\n")
 
 
@@ -174,10 +187,41 @@ def _svg_scale_bar(extent, palette):
             f'stroke-width="{size / 12:.3f}">' + "".join(parts) + "</g>")
 
 
+def _svg_compass(extent, palette, bearing):
+    """A compass rose in the top right corner, in map units."""
+    side = extent * 2
+    radius = side * 0.035
+    cx = extent - radius * 1.75
+    cy = -extent + radius * 1.75
+    shapes, letters = compass_rose(bearing)
+    dark = _colour(palette.dark)
+    paper = _colour(palette.paper)
+    parts = [f'<circle cx="{cx:.3f}" cy="{cy:.3f}" r="{radius * 1.62:.3f}" '
+             f'fill="{paper}" fill-opacity="0.85" stroke="none"/>']
+    for points, shaded in shapes:
+        data = " L".join(f"{cx + x * radius:.3f} {cy + y * radius:.3f}"
+                         for x, y in points)
+        parts.append(f'<path d="M{data} Z" fill="{dark if shaded else paper}"/>')
+    size = radius * 0.36
+    for letter, x, y in letters:
+        weight = ' font-weight="bold"' if letter == "N" else ""
+        parts.append(f'<text x="{cx + x * radius:.3f}" '
+                     f'y="{cy + y * radius + size * 0.35:.3f}" '
+                     f'font-family="sans-serif" font-size="{size:.3f}" '
+                     f'fill="{dark}" stroke="none" text-anchor="middle"'
+                     f'{weight}>{letter}</text>')
+    return (f'<g id="compass" stroke="{dark}" stroke-width="{radius / 30:.3f}" '
+            f'stroke-linejoin="miter">' + "".join(parts) + "</g>")
+
+
 def layers_to_svg(layers, extent, palette, title, pixels=2000,
-                  show_scale_bar=True):
+                  show_scale_bar=True, rotation=0, compass=None):
     """Any set of layers as an SVG, showing extent map units round the
-    centre each way. The city and the location generator both use this."""
+    centre each way. The city and the location generator both use this.
+
+    rotation turns the map clockwise by that many degrees, and compass, if
+    given, is the bearing of north on the map, for a compass rose that turns
+    with it."""
     side = extent * 2
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -188,6 +232,8 @@ def layers_to_svg(layers, extent, palette, title, pixels=2000,
         f'<rect x="{-extent:.3f}" y="{-extent:.3f}" width="{side:.3f}" '
         f'height="{side:.3f}" fill="{_colour(palette.paper)}"/>',
     ]
+    if rotation:
+        lines.append(f'<g id="map" transform="rotate({rotation:g})">')
     for layer in layers:
         if not (layer.polygons or layer.polylines or layer.circles):
             continue
@@ -199,22 +245,28 @@ def layers_to_svg(layers, extent, palette, title, pixels=2000,
         for x, y, r in layer.circles:
             lines.append(f'<circle cx="{x:.3f}" cy="{y:.3f}" r="{r:.3f}"/>')
         lines.append("</g>")
+    if rotation:
+        lines.append("</g>")
     if show_scale_bar:
         lines.append(_svg_scale_bar(extent, palette))
+    if compass is not None:
+        lines.append(_svg_compass(extent, palette, compass + rotation))
     lines.append("</svg>")
     return "\n".join(lines) + "\n"
 
 
-def city_to_svg(model, palette, pixels=2000, show_scale_bar=True):
+def city_to_svg(model, palette, pixels=2000, show_scale_bar=True,
+                rotation=0, compass=None):
     return layers_to_svg(build_layers(model, palette), map_extent(model),
                          palette, f"{size_name(model.size)}, seed {model.seed}",
-                         pixels, show_scale_bar)
+                         pixels, show_scale_bar, rotation, compass)
 
 
-def save_svg(model, palette, path, show_scale_bar=True):
+def save_svg(model, palette, path, show_scale_bar=True, rotation=0,
+             compass=None):
     with open(path, "w", encoding="utf-8") as file:
-        file.write(city_to_svg(model, palette,
-                               show_scale_bar=show_scale_bar))
+        file.write(city_to_svg(model, palette, show_scale_bar=show_scale_bar,
+                               rotation=rotation, compass=compass))
 
 
 class ImportError_(ValueError):
@@ -229,7 +281,7 @@ MOVED = 10 ** -PLACES  # For matching towers to corners.
 # Parts of the file that are worked out from the rest, so they're left out
 # when checking an import came back the same.
 _DERIVED = ("version", "app_version", "drawn_roads", "drawn_streets",
-            "wall_streets")
+            "wall_streets", "view")
 
 
 def _matches(point, x, y):
@@ -392,6 +444,8 @@ def city_from_dict(data):
                          if key in settings}
     differences = [key for key in data
                    if key not in _DERIVED and again.get(key) != data[key]]
+    # How the window showed it, if the file says.
+    model.view_settings = data.get("view")
     return model, differences
 
 
