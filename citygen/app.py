@@ -81,7 +81,7 @@ EDGE_PIXELS = 4  # How close to grab a stretch of wall and add a corner.
 # side, so small pans and hovering don't draw the whole map again.
 CACHE_MARGIN = 0.25
 
-MAP_TURN = 90  # Degrees the map turns for each press of a button.
+MAP_TURN = 15  # Degrees the map turns for each press of a button.
 COMPASS_TURN = 15  # Degrees north turns for each press of a button.
 COMPASS_PIXELS = 34  # The compass's radius on screen.
 
@@ -798,8 +798,8 @@ class MainWindow(QMainWindow):
         turn_form = _form(turn_box)
         for label, step, change, tips in (
                 ("Map", MAP_TURN, self.turn_map,
-                 ("Turn the map a quarter turn anticlockwise (Ctrl+[)",
-                  "Turn the map a quarter turn clockwise (Ctrl+])")),
+                 (f"Turn the map {MAP_TURN}\N{DEGREE SIGN} anticlockwise (Ctrl+[)",
+                  f"Turn the map {MAP_TURN}\N{DEGREE SIGN} clockwise (Ctrl+])")),
                 ("Compass", COMPASS_TURN, self.turn_compass,
                  ("Turn north anticlockwise on the map",
                   "Turn north clockwise on the map"))):
@@ -814,6 +814,10 @@ class MainWindow(QMainWindow):
                     lambda checked=False, c=change, a=sign * step: c(a))
                 row_layout.addWidget(button)
             turn_form.addRow(label, row)
+        self.turn_label = QLabel()
+        self.turn_label.setToolTip("How far the map is turned on screen and "
+                                   "in exports, clockwise")
+        turn_form.addRow("Turned", self.turn_label)
         self.north_label = QLabel()
         self.north_label.setToolTip(
             "Where north points on the map, clockwise from the top of the "
@@ -895,6 +899,10 @@ class MainWindow(QMainWindow):
         self._show_north()
 
     def _show_north(self):
+        turned = self.view.rotation
+        self.turn_label.setText(
+            "Not turned" if turned == 0 else
+            f"{turned}\N{DEGREE SIGN} clockwise")
         north = self.view.north
         self.north_label.setText(
             "Up the map" if north == 0 else

@@ -90,7 +90,7 @@ The number and ratios beside Temple, Wheat fields and Orchards are greyed out wh
 - Style changes the colours without changing the map.
 - A scale bar sits in the bottom left corner. View > Scale bar turns it off, on the map and in exports.
 - A compass sits in the top right corner. View > Compass turns it off, on the map and in exports.
-- The Orientation box turns the map and the compass. The Map buttons turn the whole map a quarter turn left or right (Ctrl+[ and Ctrl+] do the same), to change which way up it is. The Compass buttons turn north round the map 15 degrees at a time, and North says where it points. The compass is part of the map, so it turns with the map. Turning changes only how the map is shown, not the town, and Sea to still gives the coast's bearing from the top of the map as first drawn.
+- The Orientation box turns the map and the compass. The Map buttons turn the whole map 15 degrees left or right (Ctrl+[ and Ctrl+] do the same), to change which way up it is, and Turned says how far it's turned. Exports are turned the same way. At angles other than quarter turns, the corners of an export show a little more of the land round the map, or plain paper where the map has nothing drawn. The Compass buttons turn north round the map 15 degrees at a time, and North says where it points. The compass is part of the map, so it turns with the map. Turning changes only how the map is shown, not the town, and Sea to still gives the coast's bearing from the top of the map as first drawn.
 
 ## What's on the map
 

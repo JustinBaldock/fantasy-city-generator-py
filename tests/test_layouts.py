@@ -190,3 +190,26 @@ def test_the_view_is_saved_and_opened_with_the_town(window, tmp_path):
     assert window.open_json(str(path))
     assert window.view.rotation == 90 and window.view.north == 45
     assert not window.view.show_compass
+
+
+def test_the_map_turns_15_degrees_a_press(window):
+    from citygen.app import MAP_TURN
+
+    assert MAP_TURN == 15
+    window.turn_map(MAP_TURN)
+    window.turn_map(MAP_TURN)
+    assert window.view.rotation == 30
+    assert "30" in window.turn_label.text()
+    window.turn_map(-3 * MAP_TURN)
+    assert window.view.rotation == 345
+
+
+def test_a_map_turned_part_way_still_picks_the_right_spot(window):
+    from PySide6.QtCore import QPointF
+
+    view = window.view
+    window.turn_map(15)
+    for x, y in ((10, 0), (-7, 22), (31, -4)):
+        on_screen = view._transform().map(QPointF(x, y))
+        back = view._spot(on_screen)
+        assert (back.x, back.y) == pytest.approx((x, y))
