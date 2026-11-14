@@ -75,21 +75,66 @@ def test_a_tower_can_be_dragged_out_and_the_wall_follows():
     assert not crosses_itself(model.wall.shape)
 
 
-def test_dragging_a_tower_in_pushes_buildings_out_of_the_way():
+def test_dragging_a_tower_in_lays_out_the_wards_by_it_again():
     model = walled_city()
     editor = CityEditor(model)
-    start = sides(model, editor)
     tower = a_tower(model, editor)
     ox, oy = outward(tower)
-    before = [b.corners() for b in editor.buildings]
+    beside = [p for p in model.patches if p.within_city and tower in p.shape]
+    before = {id(p): [b for b in editor.buildings if b.ward is p.ward]
+              for p in beside}
 
     drag_corner(editor, tower, -ox * 10, -oy * 10)
 
     assert math.hypot(tower.x, tower.y) < math.hypot(
         tower.x + ox * 10, tower.y + oy * 10)
-    assert [b.corners() for b in editor.buildings] != before
-    assert sides(model, editor) == start
+    for patch in beside:
+        assert patch.ward.relaid
+        now = [b for b in editor.buildings if b.ward is patch.ward]
+        assert now and now != before[id(patch)]
+        # The new buildings fit the ward as it now is, inside the wall.
+        assert all(model.wall.shape.contains_point(Point(*b.center()))
+                   for b in now)
     assert not crosses_itself(model.wall.shape)
+
+
+def test_a_moved_wall_keeps_locked_buildings_as_they_were():
+    model = walled_city()
+    editor = CityEditor(model)
+    tower = a_tower(model, editor)
+    ox, oy = outward(tower)
+    patch = next(p for p in model.patches if p.within_city and tower in p.shape)
+    mine = [b for b in editor.buildings if b.ward is patch.ward]
+    locked = max(mine, key=lambda b: math.hypot(b.cx - tower.x,
+                                                b.cy - tower.y))
+    editor.set_locked(locked, True)
+    held = locked.corners()
+    drag_corner(editor, tower, ox * 6, oy * 6)
+    assert patch.ward.relaid
+    assert locked in editor.buildings and locked.corners() == held
+    assert editor.is_locked(locked)
+
+
+def test_fields_and_farms_inside_a_moved_wall_are_left_out():
+    from citygen.layers import countryside
+
+    model = walled_city(fields=True, orchards=True)
+    editor = CityEditor(model)
+    shown = countryside(model)
+    assert shown["furrows"] == model.furrows
+    tower = max((t for t in model.wall.towers if t in model.wall.shape
+                 and t not in model.wall.gates
+                 and not editor.is_fixed_corner(t)),
+                key=lambda t: t.length)
+    ox, oy = outward(tower)
+    drag_corner(editor, tower, ox * 25, oy * 25, steps=25)
+    inside = model.wall.shape.contains_point
+    shown = countryside(model)
+    assert not any(inside(Point((a.x + b.x) / 2, (a.y + b.y) / 2))
+                   for a, b in shown["furrows"])
+    assert not any(inside(Point(x, y)) for x, y, _ in shown["trees"])
+    assert editor.undo()
+    assert countryside(model)["furrows"] == model.furrows
 
 
 def test_undo_puts_a_dragged_corner_back():

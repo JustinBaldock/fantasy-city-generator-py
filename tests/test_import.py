@@ -209,3 +209,23 @@ def test_a_file_from_a_newer_version_is_refused():
     data["settings"]["moons"] = 2
     with pytest.raises(ImportError_):
         city_from_dict(data)
+
+
+@pytest.mark.parametrize("home_style", ["burgage", "gnome", "classic"])
+def test_wards_laid_out_again_by_a_wall_come_back_exactly(home_style):
+    original = Model(24, 3, walls=True, fields=True, home_style=home_style,
+                     coast=False, river=False)
+    editor = CityEditor(original)
+    wall = original.wall
+    corner = next(c for c in sorted(wall.shape, key=lambda c: -c.length)
+                  if c not in wall.gates and not editor.is_fixed_corner(c))
+    x, y = corner.x, corner.y
+    editor.begin_wall_move(corner)
+    for i in range(1, 6):
+        editor.drag_wall_to(corner, x * 0.05 * i, y * 0.05 * i)
+    editor.end_move()
+    data = through_file(original)
+    assert any(ward.get("relaid") for ward in data["wards"])
+    model, differences = city_from_dict(data)
+    assert differences == []
+    assert same(city_to_dict(model), data)

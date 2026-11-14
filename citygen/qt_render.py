@@ -192,10 +192,17 @@ def prepare(model, palette, kept=None):
         if kept is None:
             prepared += _prepare_layer(layer)
         elif layer.name in FIXED_LAYERS:
-            if layer.name not in kept:
-                kept[layer.name] = _prepare_layer(layer)
-                changed = None
-            prepared += kept[layer.name]
+            # Kept whole until its token says it has changed, as farmland
+            # does when a wall is moved over it. Then only the squares that
+            # changed are made again.
+            held = kept.get(layer.name)
+            if held is None or held[0] != layer.token:
+                squares = kept.setdefault(("fixed squares", layer.name), {})
+                if held is None:
+                    changed = None
+                held = (layer.token, _prepare_layer(layer, squares, changed))
+                kept[layer.name] = held
+            prepared += held[1]
         else:
             # The other layers change with editing, but mostly only in a
             # few squares, so each square's path is kept until it changes.

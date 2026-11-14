@@ -167,14 +167,18 @@ Turn on Edit buildings, or press `E`, to change a map by hand.
 
 ### Reshaping walls
 
-- Every wall corner you can move has a handle, filled for a tower. Drag a corner, tower or gate to move it, and the wall, the wards beside it and any road from a gate go with it. Buildings in the way are pushed aside.
+- Every wall corner you can move has a handle, filled for a tower. Drag a corner, tower or gate to move it, and the wall and any road from a gate go with it.
+- The wards along the wall stretch or shrink with it, and their buildings and homes are laid out again to fill the new shape, by the same rules that built the town, in the town's home style, with new gardens and trees. Pull the wall out and the town grows into the new ground; push it in and the wards shrink to fit. A ward always comes out the same for the same shape, but laying it out again doesn't give back the town's first layout, so the wards change as soon as the wall starts to move.
+- Locked buildings stay exactly where they are, and the rest of their ward is laid out round them. A wall can't be dragged through a locked building.
+- Fields, orchards, farms and forest the wall is moved over are left off the map, since they'd now be inside the town. They come back if the wall moves away again or the move is undone.
 - Drag a stretch of wall to put a new corner there and pull it out or in.
 - Right-click a wall corner to put a tower on it or take one off. Gates don't take towers.
-- Corners where a wall meets the water stay put, and a wall can't be dragged into water or across another wall. Buildings pushed by a moving wall stop at the other walls instead of going through them, so a wall dragged into a crowded part of town stops when the buildings can't move.
+- Corners where a wall meets the water stay put, and a wall can't be dragged into water, across another wall, across itself, or so far that a ward beside it would turn inside out.
+- Dragging a building into the wall still bends the wall out round it, pushing other buildings aside, without laying the wards out again.
 
 ### Undo and keeping your changes
 
-Undo move, or `Cmd`+`Z`, takes back one change at a time, including any walls a drag moved. Exports show your changes. To keep an edited map and carry on with it later, export it as JSON and import it again. The app asks first before a new map would replace one you've edited.
+Undo move, or `Cmd`+`Z`, takes back one change at a time, including any walls a drag moved and the buildings of any wards it laid out again. Exports show your changes. To keep an edited map and carry on with it later, export it as JSON and import it again. The app asks first before a new map would replace one you've edited.
 
 ## Exporting and importing
 
@@ -265,6 +269,7 @@ Save keeps the location in a JSON file, every piece exactly where you left it, a
 | `citygen/export.py` | JSON and SVG, and importing JSON |
 | `citygen/qt_render.py` | Drawing with Qt, and PNG |
 | `citygen/editing.py` | Moving and locking buildings, and reshaping walls |
+| `citygen/relayout.py` | Laying a ward out again when a wall moves |
 | `citygen/app.py` | The desktop app |
 | `sitegen/site.py` | A location and its pieces, each with an outline in its own frame and a position and angle |
 | `sitegen/generate.py` | Laying out farms, toll houses and roadhouses |

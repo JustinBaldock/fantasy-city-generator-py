@@ -119,6 +119,8 @@ class Layer:
     polygons: list = field(default_factory=list)
     polylines: list = field(default_factory=list)
     circles: list = field(default_factory=list)
+    # Changes whenever the layer does, for a layer a window keeps whole.
+    token: object = None
     # When asked for, a layer drawn ward by ward holds its shapes here
     # instead, as (ward, edits, polygons, polylines, circles) for each ward,
     # so a window can redraw only the wards that editing has changed.
@@ -178,6 +180,58 @@ def _wall_features(wall, large, palette, prefix):
     return [gates, towers]
 
 
+def inside_wall(model):
+    """A test of whether a point is inside the city wall, as (test, token).
+
+    The token changes whenever the wall does. With no wall, the test is
+    None. It's kept on the model while the wall stays where it is.
+    """
+    wall = model.wall
+    if wall is None:
+        return None, 0
+    key = tuple((v.x, v.y) for v in wall.shape)
+    held = model.__dict__.get("_inside_wall")
+    if held is None or held[0] != key:
+        token = held[2] + 1 if held is not None else 1
+        held = (key, streets._Inside(wall.shape), token)
+        model.__dict__["_inside_wall"] = held
+    return held[1], held[2]
+
+
+def countryside(model):
+    """The farmland and forest the map shows, which is all of it but what a
+    wall moved by hand has gone over: furrows, forest trees and orchard
+    trees inside the wall, and fields and orchards reaching inside it.
+
+    Returns a dict of the model's lists by name, with "token", which changes
+    whenever what's shown does.
+    """
+    inside, token = inside_wall(model)
+    held = model.__dict__.get("_countryside_shown")
+    if held is not None and held[0] == token:
+        return held[1]
+    if inside is None:
+        shown = {"furrows": model.furrows, "trees": model.trees,
+                 "orchards": model.orchards,
+                 "orchard_trees": model.orchard_trees, "fields": model.fields}
+    else:
+        def clear(polygon):
+            return not any(inside(v.x, v.y) for v in polygon)
+
+        shown = {
+            "furrows": [(a, b) for a, b in model.furrows
+                        if not inside((a.x + b.x) / 2, (a.y + b.y) / 2)],
+            "trees": [t for t in model.trees if not inside(t[0], t[1])],
+            "orchards": [o for o in model.orchards if clear(o)],
+            "orchard_trees": [t for t in model.orchard_trees
+                              if not inside(t[0], t[1])],
+            "fields": [f for f in model.fields if clear(f)],
+        }
+    shown["token"] = token
+    model.__dict__["_countryside_shown"] = (token, shown)
+    return shown
+
+
 def _ward_drawing(ward, before, after):
     """What one ward draws, by the name of the layer it goes in.
 
@@ -200,7 +254,14 @@ def _ward_drawing(ward, before, after):
     garden_trees = []
     room_walls = []
     shapes = []
-    for polygon in ward.geometry:
+    geometry = ward.geometry
+    if not ward.patch.within_city:
+        # A farm a wall has been moved over is left out.
+        inside, _ = inside_wall(ward.model)
+        if inside is not None:
+            geometry = [polygon for polygon in geometry
+                        if not inside(polygon.center.x, polygon.center.y)]
+    for polygon in geometry:
         if isinstance(polygon, Plot):
             gardens.append(points(polygon)[0])
             garden_trees += polygon.trees
@@ -255,13 +316,18 @@ def build_layers(model, palette, grouped=False):
     """
     road_lines, street_lines, wall_streets = streets.ways(model)
     roads = [_rounded(road) for road in road_lines]
+    shown = countryside(model)
+    token = shown["token"]
     layers = [
         Layer("Furrows", stroke=palette.furrow, width=FURROW_WIDTH, cap="flat",
-              polylines=_pairs(model.furrows)),
-        Layer("Forest", fill=palette.forest, circles=model.trees),
+              polylines=_pairs(shown["furrows"]), token=token),
+        Layer("Forest", fill=palette.forest, circles=shown["trees"],
+              token=token),
         Layer("Orchard edges", stroke=palette.furrow, width=FURROW_WIDTH * 2,
-              polygons=[_xy(plot) for plot in model.orchards]),
-        Layer("Orchards", fill=palette.forest, circles=model.orchard_trees),
+              polygons=[_xy(plot) for plot in shown["orchards"]],
+              token=token),
+        Layer("Orchards", fill=palette.forest, circles=shown["orchard_trees"],
+              token=token),
     ]
     if model.sea is not None:
         layers.append(Layer("Sea", fill=palette.water,

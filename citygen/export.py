@@ -2,23 +2,27 @@
 
 import json
 import math
+import random
 from xml.sax.saxutils import escape
 
 from . import __version__
-from .geometry import Point
+from .geometry import Point, Polygon
+from .gnomes import GnomeHome
 
 from .layers import (
     build_layers,
+    countryside,
     compass_rose,
     map_extent,
     scale_bar,
     scale_label,
 )
-from .plots import Plot
+from .plots import Green, Plot, _ring_of_trees
+from .wards import Park
 from .streets import ways
 from .model import Model, size_name
 
-JSON_FORMAT_VERSION = 15
+JSON_FORMAT_VERSION = 16
 
 
 def _xy(polygon):
@@ -47,6 +51,8 @@ def city_to_dict(model, view=None):
     or None for a building that has no plot of its own.
     """
     road_lines, street_lines, wall_streets = ways(model)
+    # What the map shows, leaving out farmland a moved wall has gone over.
+    shown = countryside(model)
 
     def lines(found):
         return [[[round(x, 3), round(y, 3)] for x, y in line]
@@ -68,6 +74,13 @@ def city_to_dict(model, view=None):
                              if isinstance(b, Plot) for x, y, r in b.trees],
             "landmarks": [_xy(b) for b in patch.ward.landmarks],
         })
+        if patch.ward.relaid:
+            # Laid out again when a wall moved, so it's made from the file.
+            wards[-1]["relaid"] = True
+            wards[-1]["rooms"] = [
+                [list(pair) for pair in house.joins]
+                if isinstance(house, GnomeHome) else None
+                for house in map(_building, patch.ward.geometry)]
 
     found = {
         "format": "fantasy-city-generator",
@@ -90,15 +103,15 @@ def city_to_dict(model, view=None):
         "river": _xy(model.river),
         "bridges": [_xy(pair) for pair in model.bridges],
         "piers": [_xy(pair) for pair in model.piers],
-        "fields": [_xy(plot) for plot in model.fields],
+        "fields": [_xy(plot) for plot in shown["fields"]],
         "trees": [[round(x, 2), round(y, 2), round(r, 2)]
-                  for x, y, r in model.trees],
+                  for x, y, r in shown["trees"]],
         "field_ratio": round(model.field_ratio, 4),
         "orchard_ratio": model.orchard_ratio,
         "temple_count": model.temple_count,
-        "orchards": [_xy(plot) for plot in model.orchards],
+        "orchards": [_xy(plot) for plot in shown["orchards"]],
         "orchard_trees": [[round(x, 2), round(y, 2), round(r, 2)]
-                          for x, y, r in model.orchard_trees],
+                          for x, y, r in shown["orchard_trees"]],
         "wall": _wall(model.wall, model) if model.wall is not None else None,
         "castle_wall": (_wall(model.citadel.ward.wall, model)
                         if model.citadel is not None else None),
@@ -370,6 +383,41 @@ def _restore_garden_trees(ward, saved):
             plot.trees = [tuple(s) for s in mine]
 
 
+def _rebuild_ward(model, patch, saved):
+    """Make a ward's buildings from the file, for a ward that was laid out
+    again when a wall moved, since making the town again can't."""
+    ward = patch.ward
+    count = len(saved["buildings"])
+    borders = saved.get("plots") or [None] * count
+    rooms = saved.get("rooms") or [None] * count
+    trees = [tuple(tree) for tree in saved.get("garden_trees", [])]
+    geometry = []
+    for building, border, joins in zip(saved["buildings"], borders, rooms):
+        points = [Point(x, y) for x, y in building]
+        house = (GnomeHome(points, [tuple(pair) for pair in joins])
+                 if joins else Polygon(points))
+        if border is None:
+            geometry.append(house)
+            continue
+        plot = Plot([Point(x, y) for x, y in border], house)
+        # Garden trees are saved plot by plot, each inside its own plot.
+        while trees and plot.contains_point(Point(trees[0][0], trees[0][1])):
+            plot.trees.append(trees.pop(0))
+        geometry.append(plot)
+    if isinstance(ward, Park):
+        chooser = random.Random(f"{model.seed} laid out again "
+                                f"{model.patches.index(patch)}")
+        geometry = [Green(green, _ring_of_trees(green, chooser))
+                    for green in geometry]
+    ward.geometry = geometry
+    ward.landmarks = [Polygon(Point(x, y) for x, y in landmark)
+                      for landmark in saved.get("landmarks", [])]
+    ward.relaid[:] = [True]
+    ward.edits += 1
+    for polygon in list(ward.geometry) + list(ward.landmarks):
+        model.built_at[id(polygon)] = tuple((v.x, v.y) for v in polygon)
+
+
 def city_from_dict(data):
     """A city made again from exported data, with its edits put back.
 
@@ -424,6 +472,9 @@ def city_from_dict(data):
 
     for patch, saved in zip(model.patches, saved_wards):
         ward = patch.ward
+        if saved.get("relaid"):
+            _rebuild_ward(model, patch, saved)
+            continue
         if len(saved["buildings"]) != len(ward.geometry):
             raise ImportError_("A ward in the file doesn't match its town")
         borders = saved.get("plots") or [None] * len(ward.geometry)

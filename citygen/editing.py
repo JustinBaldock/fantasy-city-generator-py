@@ -158,6 +158,35 @@ def _bulge_share(along, grown):
     return (1 + math.cos(wave)) / 2 + grown * along * math.pi / 2 * math.sin(wave)
 
 
+def _sound(polygon, least=1.0):
+    """Whether a ward's outline still makes sense: wound the right way,
+    with some room inside, and not crossing itself."""
+    if polygon.square < least:
+        return False
+    edges = list(polygon.edges())
+    count = len(edges)
+    for i in range(count):
+        a, b = edges[i]
+        for j in range(i + 2, count):
+            if i == 0 and j == count - 1:
+                continue
+            c, d = edges[j]
+            if _segments_cross(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y):
+                return False
+    return True
+
+
+def _crosses_building(polygon, a, b):
+    """Whether a stretch of wall from a to b goes through a building."""
+    count = len(polygon)
+    for i in range(count):
+        p = polygon[i]
+        q = polygon[(i + 1) % count]
+        if _segments_cross(p.x, p.y, q.x, q.y, a.x, a.y, b.x, b.y):
+            return True
+    return polygon.contains_point(a) or polygon.contains_point(b)
+
+
 class Building:
     """One building, and the convex outline used for collisions.
 
@@ -241,10 +270,15 @@ class CityEditor:
         self.pushes_spent = 0
         self._stuck_at = None
 
+        # Every building the editor has known, by its polygon, so one that
+        # comes back with an undo keeps its record and its lock.
+        self._records = {}
         for patch in model.patches:
             for polygon in list(patch.ward.geometry) + list(patch.ward.landmarks):
                 if len(polygon) >= 3:
-                    self.buildings.append(Building(polygon, patch.ward))
+                    building = Building(polygon, patch.ward)
+                    self.buildings.append(building)
+                    self._records[id(polygon)] = building
         for building in self.buildings:
             self._index(building)
         self._find_bank_towers()
@@ -515,6 +549,22 @@ class CityEditor:
     def _restore_lists(self, saved):
         for items, contents in saved.values():
             items[:] = contents
+
+    def _after_lists_restored(self, lists, walls):
+        """Catch up with wards whose buildings an undo has put back, and
+        with farms by corners it moves, whose hiding may change."""
+        restored = {id(items) for items, _ in lists.values()}
+        moved = {id(point) for point in walls}
+        changed = []
+        for patch in self.model.patches:
+            ward = patch.ward
+            if id(ward.geometry) in restored or id(ward.landmarks) in restored:
+                ward.edits += 1
+                changed.append(ward)
+            elif any(id(v) in moved for v in patch.shape):
+                ward.edits += 1
+        if changed:
+            self._match_buildings(changed)
 
     def _bend_wall(self, part, building, depth, moved_walls):
         """Bulge a wall away from a building. Returns the corners moved."""
@@ -1089,39 +1139,123 @@ class CityEditor:
         return corner
 
     def drag_wall_to(self, corner, offset_x, offset_y):
-        """Take a dragged wall corner towards an offset from where it began.
+        """Take a dragged wall corner to an offset from where it began.
 
-        The wall bends with it, and buildings in its way are pushed aside.
-        Returns True if it got there. Like a building, it waits at anything
-        that stops it.
+        The wards along the wall stretch or shrink with it, and their
+        buildings are laid out again to fit, keeping any that are locked.
+        Fields, orchards, farms and trees the wall moves over are left out
+        of the drawing. Returns True if it got there. A move that would make
+        the wall cross itself, or turn a ward inside out, doesn't happen.
         """
         if self._drag_origin is None or corner is not self._corner:
             return False
-        if (self._stuck_at is not None
-                and math.hypot(offset_x - self._stuck_at[0],
-                               offset_y - self._stuck_at[1]) < RETRY_DISTANCE):
+        dx = self._drag_origin[0] + offset_x - corner.x
+        dy = self._drag_origin[1] + offset_y - corner.y
+        if math.hypot(dx, dy) < 0.01:
+            return True
+        moved_walls = {}
+        self.changed_lists = {}
+        if not self._place_corner(corner, dx, dy, moved_walls):
+            for point, (x, y) in moved_walls.items():
+                point.x = x
+                point.y = y
+            self._index_walls()
             return False
-        self._stuck_at = None
+        moved = {id(point) for point in moved_walls}
+        for patch in self.model.patches:
+            if not any(id(v) in moved for v in patch.shape):
+                continue
+            if patch.within_city:
+                self._lay_out(patch)
+            else:
+                # Its farm may now be inside the wall, and hidden.
+                patch.ward.edits += 1
+        for point, spot in moved_walls.items():
+            self._drag_walls.setdefault(point, spot)
+        for key, saved in self.changed_lists.items():
+            self._drag_lists.setdefault(key, saved)
+        self.changed_lists = {}
+        self._index_walls()
+        return True
 
-        self.pushes_spent = 0
-        for _ in range(MAX_SLIDES):
-            if self.pushes_spent > MAX_PUSHES_PER_MOVE:
-                return False
-            dx = self._drag_origin[0] + offset_x - corner.x
-            dy = self._drag_origin[1] + offset_y - corner.y
-            distance = math.hypot(dx, dy)
-            if distance < 0.01:
-                return True
-            step = min(1.0, MAX_STEP / distance)
-            if not self._step(None, lambda shift, moved: self._move_corner(
-                    corner, dx * step, dy * step, moved), walls_give_way=False,
-                    heading=(dx / distance, dy / distance)):
-                self._stuck_at = (offset_x, offset_y)
-                return False
-        return False
+    def _place_corner(self, corner, dx, dy, moved_walls):
+        """Move a wall corner, and any corners at the river banks with it.
 
-    def _move_corner(self, corner, dx, dy, moved_walls):
-        """Move a wall corner. False if the wall would go wrong."""
+        False if the wall would cross itself or go onto the water, or a ward
+        it borders would turn inside out.
+        """
+        if not self._move_corner(corner, dx, dy, moved_walls, push=False):
+            return False
+        moved = {id(point) for point in moved_walls}
+        for patch in self.model.patches:
+            if any(id(v) in moved for v in patch.shape) and not _sound(
+                    patch.shape):
+                return False
+        # A locked building stays where it is, so a wall can't go through it.
+        for wall, _ in self._walls():
+            shape = wall.shape
+            for i, a in enumerate(shape):
+                b = shape[(i + 1) % len(shape)]
+                if id(a) in moved or id(b) in moved:
+                    if any(_crosses_building(building.polygon, a, b)
+                           for building in self.locked):
+                        return False
+        return True
+
+    def _lay_out(self, patch):
+        """Lay a ward's buildings out again to fit its patch, keeping the
+        locked ones, in a way undo can put back."""
+        from .relayout import lay_out_again
+
+        ward = patch.ward
+        geometry = ward.geometry
+        landmarks = ward.landmarks
+        self._note_list(geometry)
+        self._note_list(landmarks)
+        self._note_list(ward.relaid)
+        keep = [b.polygon for b in self.buildings
+                if b.ward is ward and b in self.locked]
+        lay_out_again(self.model, patch, keep)
+        # Keep the same lists, which undo puts back as they were.
+        geometry[:] = ward.geometry
+        landmarks[:] = ward.landmarks
+        ward.geometry = geometry
+        ward.landmarks = landmarks
+        ward.relaid[:] = [True]
+        self._match_buildings([ward])
+
+    def _match_buildings(self, wards):
+        """Bring the editor's buildings for some wards into line with what
+        the wards hold, keeping a building's record, and its lock, while
+        it's still there. The buildings stay in the town's order."""
+        wards = set(wards)
+        by_ward = {}
+        for building in self.buildings:
+            by_ward.setdefault(building.ward, []).append(building)
+            if building.ward in wards:
+                self._unindex(building)
+        ordered = []
+        for patch in self.model.patches:
+            ward = patch.ward
+            if ward not in wards:
+                ordered += by_ward.get(ward, [])
+                continue
+            for polygon in list(ward.geometry) + list(ward.landmarks):
+                if len(polygon) < 3:
+                    continue
+                building = self._records.get(id(polygon))
+                if building is None or building.polygon is not polygon:
+                    building = Building(polygon, ward)
+                    self._records[id(polygon)] = building
+                ordered.append(building)
+                self._index(building)
+        self.buildings = ordered
+
+    def _move_corner(self, corner, dx, dy, moved_walls, push=True):
+        """Move a wall corner. False if the wall would go wrong.
+
+        With push, the buildings it runs into are noted, to be pushed aside.
+        """
         moved_walls.setdefault(corner, (corner.x, corner.y))
         self.wall_home.setdefault(corner, (corner.x, corner.y))
         wet = self._water_at(corner.x, corner.y)
@@ -1139,8 +1273,9 @@ class CityEditor:
         if any(self._wall_gone_wrong(wall, {corner: 1.0}, check_water=False)
                for wall in walls):
             return False
-        size = math.hypot(dx, dy) or 1.0
-        self._note_squeezed(None, {corner: 1.0}, (dx / size, dy / size))
+        if push:
+            size = math.hypot(dx, dy) or 1.0
+            self._note_squeezed(None, {corner: 1.0}, (dx / size, dy / size))
         return True
 
     def toggle_tower(self, corner):
@@ -1170,10 +1305,11 @@ class CityEditor:
         if not self.history:
             return False
         buildings, walls, lists = self.history.pop()
+        self._restore_lists(lists)
+        self._after_lists_restored(lists, walls)
         for building, corners in buildings.items():
             building.place(corners)
             self._reindex(building)
-        self._restore_lists(lists)
         for point, (x, y) in walls.items():
             point.x = x
             point.y = y

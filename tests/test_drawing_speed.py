@@ -232,12 +232,17 @@ def test_kept_bends_and_outlines_match_working_them_out_afresh():
 def test_only_moved_buildings_get_new_outlines():
     model = Model(24, 4, walls=True)
     before = {id(entry): entry for entry, _ in streets._outlines(model)}
-    for editor in wall_drag(model, 3):
+    for _ in wall_drag(model, 3):
         pass
     after = streets._outlines(model)
+    # Wards along the moved wall are laid out again with new buildings, so
+    # only the rest are counted.
+    kept = model.__dict__["_way_outlines"]
+    relaid = {id(entry) for patch in model.patches if patch.ward.relaid
+              for entry, _ in kept[patch.ward][1]}
+    assert relaid
     remade = [has_moved for entry, has_moved in after
-              if id(entry) not in before]
-    assert remade
+              if id(entry) not in before and id(entry) not in relaid]
     # A building nudged and put back may be worked out again, but the rest
     # that never moved keep their outlines.
     assert sum(1 for has_moved in remade if not has_moved) <= len(after) // 20

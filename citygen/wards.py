@@ -123,6 +123,9 @@ class Ward:
         self.patch = patch
         self.geometry = []
         self.landmarks = []
+        # Holds True once the ward has been laid out again because a wall
+        # moved. A list, so that undoing a move puts it back as it was.
+        self.relaid = []
 
     def create_geometry(self):
         self.geometry = []
