@@ -112,7 +112,7 @@ Layout sets the town's plan. The same seed gives a different town in each.
 
 - **Organic** is the original's plan, laid out on a Voronoi diagram, with streets that wind and wards of every shape.
 - **Grid** is a planned town of blocks. Its streets run straight, east to west and north to south, with blocks of slightly different sizes, and two avenues cross at the centre, where a plaza takes the middle block when there is one. The buildings in each block are set out squarely, and the walls step round the blocks, with gates only where a street leads straight out. A river bends the blocks along its banks.
-- **Circular** has a round hub at its centre, often its plaza, with ring roads round it and spokes running out from it. The spokes double as the rings grow, so the outer wards are no wider than the inner ones. The town takes the wards nearest the hub, so its edge is rough, and its walls follow the rings and step in along the spokes.
+- **Circular** has a round hub at its centre, often its plaza, with ring roads round it and spokes running out from it. The spokes double as the rings grow, so the outer wards are no wider than the inner ones. The town fills whole rings, so its edge and its walls are round: the ring at its edge has just as many wards as the town still needs, however many that is. A town on the coast loses the rings' seaward side, and its walls follow the shore instead. A town of two wards, the hub and one more, can't be round.
 
 Everything else works the same in all three: walls, castles, temples, water, farmland, homes and editing.
 

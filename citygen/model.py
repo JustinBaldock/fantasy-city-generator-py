@@ -268,7 +268,7 @@ class Model:
             # diagram to smooth out.
             count = max(self.size, SMALL_TOWN) * 8
             shapes = (layouts.grid(count) if self.layout == "grid"
-                      else layouts.radial(count))
+                      else layouts.radial(count, self.size))
             self.patches = [Patch(shape) for shape in shapes]
             self._take_the_town()
             return

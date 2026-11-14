@@ -213,3 +213,17 @@ def test_a_map_turned_part_way_still_picks_the_right_spot(window):
         on_screen = view._transform().map(QPointF(x, y))
         back = view._spot(on_screen)
         assert (back.x, back.y) == pytest.approx((x, y))
+
+
+@pytest.mark.parametrize("size", [3, 4, 9, 10, 15, 24, 40, 100])
+def test_a_circular_towns_wall_stays_round(size):
+    for seed in range(1, 4):
+        model = Model(size, seed, layout="radial", walls=True, coast=False,
+                      river=False)
+        assert len(model.inner) == size
+        radii = [v.length for v in model.wall.shape]
+        assert max(radii) - min(radii) < 1e-6
+        # The town is whole rings: every ward is inside the wall's circle.
+        edge = max(radii)
+        assert all(v.length <= edge + 1e-6
+                   for patch in model.inner for v in patch.shape)

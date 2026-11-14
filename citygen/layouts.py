@@ -16,6 +16,7 @@ since the streets and walls are found by following shared edges.
 """
 
 import math
+from fractions import Fraction
 
 from . import rng
 from .geometry import Point, Polygon
@@ -90,39 +91,89 @@ def _spokes_for(radius):
     return spokes
 
 
-def radial(count):
-    """A hub, and enough wards in rings round it to make at least count."""
+MIN_EDGE_WARDS = 3  # The fewest wards the ring at a town's edge can have.
+
+
+def _ring_points(radius, turn, fractions):
+    """The points round a ring, at shares of a turn, filled in so that no
+    straight piece is longer than ARC_STEP. Returns {share: point}."""
+    shares = sorted(set(fractions))
+    filled = []
+    circumference = 2 * math.pi * radius
+    for i, share in enumerate(shares):
+        following = shares[(i + 1) % len(shares)] + (1 if i == len(shares) - 1
+                                                     else 0)
+        filled.append(share)
+        pieces = math.ceil((following - share) * circumference / ARC_STEP)
+        for k in range(1, pieces):
+            filled.append(share + (following - share) * Fraction(k, pieces))
+    points = {}
+    for share in filled:
+        share = share % 1
+        angle = turn + 2 * math.pi * float(share)
+        points[share] = Point(math.cos(angle) * radius,
+                              math.sin(angle) * radius)
+    return points
+
+
+def radial(count, town=None):
+    """A hub, and enough wards in rings round it to make at least count.
+
+    town is how many wards the town has. The town takes whole rings, so its
+    edge is round: the ring at its edge has just the wards still needed, at
+    least MIN_EDGE_WARDS, and those before it have the usual number. Further
+    out, the rings go back to the usual number.
+    """
     turn = rng.random() * 2 * math.pi
     radii = [HUB]
     spokes = []  # For each band between two rings.
     total = 1
     while total < count:
-        spokes.append(_spokes_for(radii[-1]))
+        usual = _spokes_for(radii[-1])
+        if town is not None and total < town:
+            needed = town - total
+            if needed < usual:
+                # The first ring can be two halves, so a town of three is
+                # round too.
+                least = MIN_EDGE_WARDS if spokes else 2
+                usual = max(least, needed)
+            elif needed - usual < MIN_EDGE_WARDS:
+                # Too few would be left for a ring of their own, so this
+                # ring takes them too.
+                usual = needed
+        spokes.append(usual)
         radii.append(radii[-1] + _between(*BAND))
         total += spokes[-1]
 
-    # The points round each ring, enough for every spoke that meets it, and
-    # close enough together to look round.
+    # The points round each ring are shared by the wards either side, so
+    # each ring has a point at every spoke that meets it.
     rings = []
     for j, radius in enumerate(radii):
-        meeting = [spokes[k] for k in (j - 1, j) if 0 <= k < len(spokes)]
-        points = max(meeting)
-        while 2 * math.pi * radius / points > ARC_STEP:
-            points *= 2
-        rings.append([Point(math.cos(turn + 2 * math.pi * a / points) * radius,
-                            math.sin(turn + 2 * math.pi * a / points) * radius)
-                      for a in range(points)])
+        shares = [Fraction(0)]
+        for k in (j - 1, j):
+            if 0 <= k < len(spokes):
+                shares += [Fraction(a, spokes[k]) for a in range(spokes[k])]
+        rings.append(_ring_points(radius, turn, shares))
 
-    shapes = [_wound(rings[0])]
+    def between(ring, low, high):
+        """The points of a ring from one share to another, in order."""
+        found = [share for share in ring if low <= share <= high]
+        if high == 1:
+            found.append(Fraction(1))
+        return [ring[share % 1] for share in sorted(found)]
+
+    hub = rings[0]
+    shapes = [_wound([hub[share] for share in sorted(hub)])]
     for band, count_here in enumerate(spokes):
-        inner = rings[band]
-        outer = rings[band + 1]
-        step_in = len(inner) // count_here
-        step_out = len(outer) // count_here
+        ward_shapes = []
         for s in range(count_here):
-            near = [inner[(s * step_in + a) % len(inner)]
-                    for a in range(step_in + 1)]
-            far = [outer[(s * step_out + a) % len(outer)]
-                   for a in range(step_out, -1, -1)]
-            shapes.append(_wound(near + far))
-    return _in_order(shapes)
+            low = Fraction(s, count_here)
+            high = Fraction(s + 1, count_here)
+            near = between(rings[band], low, high)
+            far = between(rings[band + 1], low, high)
+            ward_shapes.append(_wound(near + list(reversed(far))))
+        # Ring by ring, so the town takes whole rings, and in a jumbled order
+        # round each ring, so the castle and the first fields vary.
+        order = sorted(range(len(ward_shapes)), key=lambda i: rng.random())
+        shapes += [ward_shapes[i] for i in order]
+    return shapes
