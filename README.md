@@ -236,12 +236,13 @@ Everything on the map is a piece you can change. Hover over one to see what it i
 - **Add** a piece with the Add buttons. It appears in the middle of the view, selected, ready to move.
 - **Delete** the selection with Delete or Backspace, or the Delete button.
 - **Pan** by dragging with the right or middle mouse button, or with Space held down. Scroll to zoom, and double-click open ground to reset the view.
+- **Turn the map** with the Orientation box, as in the city generator: the Map buttons, or Ctrl+[ and Ctrl+], turn it 15 degrees at a time, and the Compass buttons turn north round the map. A compass sits in the top right corner, and View > Compass hides it. Editing follows the screen on a turned map: a box you drag selects what it covers on screen, the arrow keys move the selection the way they point, and the turn handle stays above the selection.
 
 A wheat field's furrows run along its longest edge, and an orchard's trees stand in rows, so both follow the field as you turn or reshape it. A wood fills itself with trees the same way.
 
 ### Saving and exporting
 
-Save keeps the location in a JSON file, every piece exactly where you left it, and Open brings it back to carry on editing. The file records the version of the app that saved it. PNG and SVG export the map with the scale bar, in any of the city generator's styles. The app asks before a new location replaces changes you haven't saved.
+Save keeps the location in a JSON file, every piece exactly where you left it, and Open brings it back to carry on editing. The file records the version of the app that saved it. PNG and SVG export the map turned as the window shows it, with the scale bar and compass unless they're hidden, in any of the city generator's styles. The saved file keeps the turn, north and whether the compass and scale bar show, and Open puts them back. The app asks before a new location replaces changes you haven't saved.
 
 ## For developers
 

@@ -118,6 +118,12 @@ class SiteEditor:
                 if all(left <= x <= right and top <= y <= bottom
                        for x, y in piece.reach())]
 
+    def pieces_within(self, corners):
+        """The pieces wholly inside a four-sided area of the map, given by
+        its corners, such as a box drawn on a turned map."""
+        return [piece for piece in self.site.pieces
+                if all(inside(corners, x, y) for x, y in piece.reach())]
+
     def point_at(self, piece, x, y, tolerance):
         """Which corner or point of a piece is at a spot, or None."""
         best = None

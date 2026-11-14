@@ -25,8 +25,9 @@ def _round(values, places=4):
     return [[round(x, places), round(y, places)] for x, y in values]
 
 
-def site_to_dict(site):
-    """The location as plain data. Angles are in degrees."""
+def site_to_dict(site, view=None):
+    """The location as plain data, with view, how the window shows it, if
+    given. Angles are in degrees."""
     pieces = []
     for piece in site.pieces:
         data = {"kind": piece.kind, "label": piece.label,
@@ -41,9 +42,12 @@ def site_to_dict(site):
         if piece.joins:
             data["joins"] = [list(pair) for pair in piece.joins]
         pieces.append(data)
-    return {"format": FORMAT, "format_version": FORMAT_VERSION,
-            "app_version": __version__, "kind": site.kind, "seed": site.seed,
-            "pieces": pieces}
+    found = {"format": FORMAT, "format_version": FORMAT_VERSION,
+             "app_version": __version__, "kind": site.kind, "seed": site.seed,
+             "pieces": pieces}
+    if view is not None:
+        found["view"] = dict(view)
+    return found
 
 
 def site_from_dict(data):
@@ -65,16 +69,18 @@ def site_from_dict(data):
                 float(item.get("radius", 0.0)), item.get("label", ""),
                 int(item.get("seed", 0)),
                 [tuple(int(i) for i in pair) for pair in item.get("joins", [])]))
-        return Site(data.get("kind", "farm"), int(data.get("seed", 1)), pieces)
+        view = data.get("view")
+        return Site(data.get("kind", "farm"), int(data.get("seed", 1)), pieces,
+                    view if isinstance(view, dict) else None)
     except (KeyError, TypeError, ValueError) as error:
         if isinstance(error, OpenError):
             raise
         raise OpenError(f"The file is damaged ({error}).") from error
 
 
-def save_json(site, path):
+def save_json(site, path, view=None):
     with open(path, "w", encoding="utf-8") as file:
-        json.dump(site_to_dict(site), file, indent=1)
+        json.dump(site_to_dict(site, view), file, indent=1)
         file.write("\n")
 
 
@@ -92,17 +98,23 @@ def title(site):
     return f"{KIND_NAMES.get(site.kind, 'Location')}, seed {site.seed}"
 
 
-def site_to_svg(site, palette, pixels=2000, show_scale_bar=True):
+def site_to_svg(site, palette, pixels=2000, show_scale_bar=True, rotation=0,
+                compass=None):
+    """The location as an SVG, turned clockwise by rotation degrees, with a
+    compass whose north is compass degrees round the map, if given."""
     return layers_to_svg(build_layers(site, palette), site.extent(), palette,
-                         title(site), pixels, show_scale_bar)
+                         title(site), pixels, show_scale_bar, rotation, compass)
 
 
-def save_svg(site, palette, path, show_scale_bar=True):
+def save_svg(site, palette, path, show_scale_bar=True, rotation=0,
+             compass=None):
     with open(path, "w", encoding="utf-8") as file:
-        file.write(site_to_svg(site, palette, show_scale_bar=show_scale_bar))
+        file.write(site_to_svg(site, palette, show_scale_bar=show_scale_bar,
+                               rotation=rotation, compass=compass))
 
 
-def save_png(site, palette, path, pixels=3000, show_scale_bar=True):
+def save_png(site, palette, path, pixels=3000, show_scale_bar=True,
+             rotation=0, compass=None):
     from citygen.qt_render import save_layers_png
     save_layers_png(build_layers(site, palette), site.extent(), palette, path,
-                    pixels, show_scale_bar)
+                    pixels, show_scale_bar, rotation, compass)

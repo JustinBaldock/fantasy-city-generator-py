@@ -471,3 +471,87 @@ def test_the_side_panel_shows_every_button_in_full(window):
         right = button.mapTo(panel, QPoint(button.width(), 0)).x()
         assert right <= panel.width()
         assert button.width() >= button.minimumSizeHint().width()
+
+
+# Turning the map, and the compass.
+
+def test_the_map_and_compass_turn_15_degrees_a_press(window):
+    window.turn_map(15)
+    window.turn_map(15)
+    window.turn_compass(-15)
+    assert window.view.rotation == 30 and window.view.north == 345
+    assert "30" in window.turn_label.text()
+    assert "345" in window.north_label.text()
+    window.compass_action.setChecked(False)
+    assert not window.view.show_compass
+
+
+def test_a_turned_map_still_picks_the_right_spot(window):
+    view = window.view
+    window.turn_map(45)
+    for x, y in ((10, 0), (-7, 22), (31, -4)):
+        back = view.spot(view.window_point(x, y))
+        assert back == pytest.approx((x, y))
+
+
+def test_a_box_on_a_turned_map_selects_what_it_covers(window):
+    view = window.view
+    window.site.pieces[:] = [new_piece("tree", 0, 0), new_piece("well", 4, 0),
+                             new_piece("tree", 0, 30)]
+    view.refresh()
+    window.turn_map(90)
+    # On screen the trees at 0, 0 and 4, 0 are one above the other.
+    top = view.window_point(0, 0)
+    corner = QPoint(round(top.x()) - 40, round(top.y()) - 20)
+    QTest.mousePress(view, Qt.MouseButton.LeftButton, pos=corner)
+    QTest.mouseMove(view, corner + QPoint(80, 90))
+    QTest.mouseRelease(view, Qt.MouseButton.LeftButton,
+                       pos=corner + QPoint(80, 90))
+    assert {p.kind for p in view.selection} == {"tree", "well"}
+    assert len(view.selection) == 2
+
+
+def test_arrow_keys_move_the_selection_up_the_screen_on_a_turned_map(window):
+    view = window.view
+    piece = window.view.add_piece("tree")
+    window.turn_map(90)
+    before = view.window_point(piece.x, piece.y)
+    view.nudge(0, -1)
+    after = view.window_point(piece.x, piece.y)
+    assert after.y() < before.y()
+    assert after.x() == pytest.approx(before.x(), abs=1e-6)
+
+
+def test_the_turn_handle_sits_above_the_selection_on_screen(window):
+    view = window.view
+    piece = view.add_piece("building")
+    window.turn_map(60)
+    handle = view.turn_handle()
+    corners = [view.window_point(x, y) for x, y in piece.box_corners()]
+    assert handle.y() < min(p.y() for p in corners)
+
+
+def test_exports_turn_and_show_the_compass(tmp_path, qapp):
+    site = generate("farm", 2)
+    svg = files.site_to_svg(site, PALETTE, rotation=30, compass=15)
+    assert 'transform="rotate(30)"' in svg and 'id="compass"' in svg
+    assert 'id="compass"' not in files.site_to_svg(site, PALETTE)
+    path = tmp_path / "farm.png"
+    files.save_png(site, PALETTE, path, 400, rotation=30, compass=15)
+    assert path.stat().st_size > 1000
+
+
+def test_the_view_is_saved_and_opened_with_the_location(window, tmp_path):
+    window.turn_map(45)
+    window.turn_compass(30)
+    window.compass_action.setChecked(False)
+    path = tmp_path / "inn.json"
+    files.save_json(window.site, path, window.view_settings())
+    assert json.loads(path.read_text())["view"]["rotation"] == 45
+    window.turn_map(-45)
+    window.turn_compass(-30)
+    window.compass_action.setChecked(True)
+    window.changed = False
+    assert window.open_json(str(path))
+    assert window.view.rotation == 45 and window.view.north == 30
+    assert not window.view.show_compass

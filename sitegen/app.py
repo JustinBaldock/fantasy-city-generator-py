@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QGroupBox,
+    QHBoxLayout,
     QInputDialog,
     QLabel,
     QMainWindow,
@@ -37,7 +38,10 @@ from PySide6.QtWidgets import (
 
 from citygen import qt_render
 from citygen.app import (
+    COMPASS_PIXELS,
+    COMPASS_TURN,
     FORM_SPACING,
+    MAP_TURN,
     MAX_ZOOM,
     MIN_PANEL_WIDTH,
     MIN_ZOOM,
@@ -100,6 +104,9 @@ class SiteView(QWidget):
         self.selection = []
         self.reshaping = False
         self.show_scale_bar = True
+        self.show_compass = True
+        self.rotation = 0  # How far the map is turned clockwise, in degrees.
+        self.north = 0  # Where north is on the map, clockwise from up.
         self.space_held = False
         self.hover_text = ""
         self.hover_position = QPointF(0, 0)
@@ -154,11 +161,28 @@ class SiteView(QWidget):
         transform = QTransform()
         transform.translate(self.width() / 2 + self.pan.x(),
                             self.height() / 2 + self.pan.y())
+        transform.rotate(self.rotation)
         transform.scale(scale, scale)
         return transform
 
     def _scale(self):
-        return self._transform().m11()
+        """Pixels for each unit of map."""
+        transform = self._transform()
+        return math.hypot(transform.m11(), transform.m12())
+
+    def set_turns(self, rotation, north):
+        """Turn the map on screen, clockwise in degrees, and set where north
+        is on the map, clockwise from up the map."""
+        self.rotation = rotation % 360
+        self.north = north % 360
+        self.update()
+
+    def screen_to_map(self, dx, dy):
+        """A distance across the screen, in pixels, as one across the map."""
+        inverse, _ = self._transform().inverted()
+        origin = inverse.map(QPointF(0, 0))
+        moved = inverse.map(QPointF(dx, dy))
+        return moved.x() - origin.x(), moved.y() - origin.y()
 
     def spot(self, position):
         """The place on the map under a position in the window."""
@@ -203,14 +227,23 @@ class SiteView(QWidget):
         """The box round the selection on the map."""
         return bounds(self.selection) if self.selection else None
 
+    def _box_on_screen(self):
+        """The selection's box, as the window shows it, (left, top, right,
+        bottom) in pixels, which is upright however the map is turned."""
+        left, top, right, bottom = self.selection_box()
+        corners = [self.window_point(x, y) for x, y in
+                   ((left, top), (right, top), (right, bottom), (left, bottom))]
+        xs = [p.x() for p in corners]
+        ys = [p.y() for p in corners]
+        return min(xs), min(ys), max(xs), max(ys)
+
     def turn_handle(self):
-        """Where the handle for turning the selection is, in the window."""
-        box = self.selection_box()
-        if box is None:
+        """Where the handle for turning the selection is, in the window:
+        above the selection, whichever way the map is turned."""
+        if self.selection_box() is None:
             return None
-        left, top, right, _ = box
-        corner = self.window_point((left + right) / 2, top)
-        return QPointF(corner.x(), corner.y() - TURN_HANDLE_PIXELS)
+        left, top, right, _ = self._box_on_screen()
+        return QPointF((left + right) / 2, top - TURN_HANDLE_PIXELS)
 
     def _near(self, position, point, pixels=GRAB_PIXELS):
         gap = position - point
@@ -239,6 +272,11 @@ class SiteView(QWidget):
         if self.show_scale_bar:
             qt_render.paint_scale_bar(painter, colours, 16, self.height() - 14,
                                       self._scale(), 160, 12)
+        if self.show_compass:
+            cx, cy, radius = qt_render.compass_place(
+                self.width(), self.height(), COMPASS_PIXELS)
+            qt_render.paint_compass(painter, colours, cx, cy, radius,
+                                    self.north + self.rotation)
         if self.hover_text and self.mode is None:
             self._paint_label(painter, colours)
 
@@ -273,7 +311,7 @@ class SiteView(QWidget):
                                        for x, y in corners]))
         turn = self.turn_handle()
         painter.setPen(QPen(blue, 1))
-        painter.drawLine(turn, self.window_point((left + right) / 2, top))
+        painter.drawLine(turn, QPointF(turn.x(), self._box_on_screen()[1]))
         painter.setBrush(QColor("#ffffff"))
         painter.drawEllipse(turn, HANDLE_PIXELS + 1, HANDLE_PIXELS + 1)
 
@@ -466,11 +504,12 @@ class SiteView(QWidget):
         mode = self.mode
         self.mode = None
         if mode == "band":
-            left, top = self.spot(QRectF(self.drag_from, self.band)
-                                  .normalized().topLeft())
-            right, bottom = self.spot(QRectF(self.drag_from, self.band)
-                                      .normalized().bottomRight())
-            found = self.editor.pieces_in(left, top, right, bottom)
+            # The box on screen, which is turned on the map if the map is.
+            box = QRectF(self.drag_from, self.band).normalized()
+            corners = [self.spot(corner) for corner in (
+                box.topLeft(), box.topRight(), box.bottomRight(),
+                box.bottomLeft())]
+            found = self.editor.pieces_within(corners)
             kept = self.originals + [p for p in found if not any(
                 p is q for q in self.originals)]
             self.band = None
@@ -547,8 +586,15 @@ class SiteView(QWidget):
         self._changed()
 
     def nudge(self, dx, dy):
+        """Move the selection a distance in map units, in a direction on
+        screen, so an arrow key moves it that way whichever way the map is
+        turned."""
         if self.selection:
-            self.editor.move(self.selection, dx, dy)
+            length = math.hypot(dx, dy)
+            sx, sy = self.screen_to_map(dx, dy)
+            size = math.hypot(sx, sy) or 1.0
+            self.editor.move(self.selection, sx / size * length,
+                             sy / size * length)
             self._changed()
 
     def delete_selection(self):
@@ -593,6 +639,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         self._build_menu()
+        self._show_turns()
         for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             QShortcut(QKeySequence(key), self, self._return_pressed)
         self.location_label = QLabel()
@@ -728,6 +775,39 @@ class MainWindow(QMainWindow):
         QVBoxLayout(style_box).addWidget(self.palette_box)
         layout.addWidget(style_box)
 
+        turn_box = QGroupBox("Orientation")
+        turn_form = _form(turn_box)
+        for label, step, change, tips in (
+                ("Map", MAP_TURN, self.turn_map,
+                 (f"Turn the map {MAP_TURN}\N{DEGREE SIGN} anticlockwise "
+                  "(Ctrl+[)",
+                  f"Turn the map {MAP_TURN}\N{DEGREE SIGN} clockwise "
+                  "(Ctrl+])")),
+                ("Compass", COMPASS_TURN, self.turn_compass,
+                 ("Turn north anticlockwise on the map",
+                  "Turn north clockwise on the map"))):
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            for text, sign, tip in (("\u21ba Left", -1, tips[0]),
+                                    ("Right \u21bb", 1, tips[1])):
+                button = QPushButton(text)
+                button.setToolTip(tip)
+                button.clicked.connect(
+                    lambda checked=False, c=change, a=sign * step: c(a))
+                row_layout.addWidget(button)
+            turn_form.addRow(label, row)
+        self.turn_label = QLabel()
+        self.turn_label.setToolTip("How far the map is turned on screen and "
+                                   "in exports, clockwise")
+        turn_form.addRow("Turned", self.turn_label)
+        self.north_label = QLabel()
+        self.north_label.setToolTip(
+            "Where north points on the map, clockwise from the top of the "
+            "map as first drawn")
+        turn_form.addRow("North", self.north_label)
+        layout.addWidget(turn_box)
+
         layout.addStretch(1)
         return panel
 
@@ -787,6 +867,26 @@ class MainWindow(QMainWindow):
         self.scale_bar_action.setChecked(True)
         self.scale_bar_action.toggled.connect(self._scale_bar_toggled)
         view_menu.addAction(self.scale_bar_action)
+        self.compass_action = QAction("Compass", self)
+        self.compass_action.setCheckable(True)
+        self.compass_action.setChecked(True)
+        self.compass_action.toggled.connect(self._compass_toggled)
+        view_menu.addAction(self.compass_action)
+        view_menu.addSeparator()
+        for text, shortcut, handler in (
+                ("Turn map left", "Ctrl+[",
+                 lambda: self.turn_map(-MAP_TURN)),
+                ("Turn map right", "Ctrl+]",
+                 lambda: self.turn_map(MAP_TURN)),
+                ("Turn compass left", None,
+                 lambda: self.turn_compass(-COMPASS_TURN)),
+                ("Turn compass right", None,
+                 lambda: self.turn_compass(COMPASS_TURN))):
+            action = QAction(text, self)
+            if shortcut:
+                action.setShortcut(QKeySequence(shortcut))
+            action.triggered.connect(handler)
+            view_menu.addAction(action)
 
     # Making locations.
 
@@ -891,6 +991,47 @@ class MainWindow(QMainWindow):
     def _show_hovered(self, text):
         self.statusBar().showMessage(text)
 
+    def turn_map(self, degrees):
+        """Turn the map on screen, and in exports, by a number of degrees
+        clockwise. The compass turns with it."""
+        self.view.set_turns(self.view.rotation + degrees, self.view.north)
+        self._show_turns()
+
+    def turn_compass(self, degrees):
+        """Turn north on the map by a number of degrees clockwise."""
+        self.view.set_turns(self.view.rotation, self.view.north + degrees)
+        self._show_turns()
+
+    def _show_turns(self):
+        turned = self.view.rotation
+        self.turn_label.setText("Not turned" if turned == 0 else
+                                f"{turned}\N{DEGREE SIGN} clockwise")
+        north = self.view.north
+        self.north_label.setText(
+            "Up the map" if north == 0 else
+            f"{north}\N{DEGREE SIGN} clockwise")
+
+    def view_settings(self):
+        """How the location is shown, as saved with it."""
+        return {"rotation": self.view.rotation, "north": self.view.north,
+                "compass": self.view.show_compass,
+                "scale_bar": self.view.show_scale_bar}
+
+    def _apply_view(self, view):
+        if not view:
+            return
+        self.view.set_turns(view.get("rotation", 0), view.get("north", 0))
+        self.compass_action.setChecked(bool(view.get("compass", True)))
+        self.scale_bar_action.setChecked(bool(view.get("scale_bar", True)))
+        self._show_turns()
+
+    def _compass_toggled(self, on):
+        self.view.show_compass = on
+        self.view.update()
+
+    def _export_compass(self):
+        return self.view.north if self.view.show_compass else None
+
     def _scale_bar_toggled(self, on):
         self.view.show_scale_bar = on
         self.view.update()
@@ -929,17 +1070,20 @@ class MainWindow(QMainWindow):
         if path:
             self._save(path, lambda: files.save_png(
                 self.site, self.palette(), path, pixels,
-                self.view.show_scale_bar))
+                self.view.show_scale_bar, self.view.rotation,
+                self._export_compass()))
 
     def export_svg(self):
         path = self._ask_path("Export SVG", "svg", "SVG image")
         if path:
             self._save(path, lambda: files.save_svg(
-                self.site, self.palette(), path, self.view.show_scale_bar))
+                self.site, self.palette(), path, self.view.show_scale_bar,
+                self.view.rotation, self._export_compass()))
 
     def save_json(self):
         path = self._ask_path("Save location", "json", "Location")
-        if path and self._save(path, lambda: files.save_json(self.site, path)):
+        if path and self._save(path, lambda: files.save_json(
+                self.site, path, self.view_settings())):
             self.changed = False
 
     def open_json(self, path=None):
@@ -959,6 +1103,7 @@ class MainWindow(QMainWindow):
         self.changed = False
         self._show_settings(site)
         self._show(site)
+        self._apply_view(site.view)
         if made_with and made_with != __version__:
             QMessageBox.information(
                 self, APP_NAME,

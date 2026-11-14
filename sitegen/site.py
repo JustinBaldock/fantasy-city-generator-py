@@ -131,6 +131,9 @@ class Site:
     kind: str = "farm"
     seed: int = 1
     pieces: list = field(default_factory=list)
+    # How the window showed it when it was saved, if it says: the map's turn
+    # and north in degrees, and whether the compass and scale bar show.
+    view: dict = None
 
     def extent(self, margin=1.05, least=20.0):
         """How far the location reaches from the centre, in map units.

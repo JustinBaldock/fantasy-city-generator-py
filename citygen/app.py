@@ -906,7 +906,7 @@ class MainWindow(QMainWindow):
         north = self.view.north
         self.north_label.setText(
             "Up the map" if north == 0 else
-            f"{north}\N{DEGREE SIGN} clockwise from up the map")
+            f"{north}\N{DEGREE SIGN} clockwise")
 
     def view_settings(self):
         """How the map is shown, as saved with it."""
